@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 1999 GrowthOS
 
-## Getting Started
+GrowthOS coordinates AI-prepared work, human execution, evidence, and reporting.
+Sift remains the prospecting and research layer; GrowthOS does not send email or
+post to social networks on an employee's behalf.
 
-First, run the development server:
+## Run locally
+
+From `growthos-frontend`:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). The available checks are:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run typecheck
+npm run lint
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Supabase setup
 
-## Learn More
+The typed service modules in `src/lib` use Supabase Auth and the Supabase
+Data API. Configure these values in the ignored `.env` file, then restart the
+Next.js server:
 
-To learn more about Next.js, take a look at the following resources:
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The publishable key is intended for browser use with RLS enabled. Never put a
+service-role key in a `NEXT_PUBLIC_*` variable or any browser bundle.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase Dashboard SQL
+Editor. It creates the GrowthOS tables, profile trigger, RLS policies, and safe
+task-update, deactivation, and profile-update functions. If an earlier version of the schema was
+already applied, rerun the current script; its table creation and policy
+replacement are idempotent and it adds the functions used by this frontend.
+Sign up with the account that should be the first administrator, then run the
+example profile-promotion statement at the end of the SQL file.
 
-## Deploy on Vercel
+New self-signups receive the `EMPLOYEE` role. Supabase email confirmation
+settings control whether sign-up immediately creates a session or displays a
+confirmation prompt. Set the Supabase Auth Site URL and redirect allow-list to
+the deployed app URL.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The Employees invitation action uses the `invite-employee` Supabase Edge
+Function. Deploy it with the Supabase CLI after linking this project:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+supabase functions deploy invite-employee
+```
+
+The function verifies the caller is an active admin before using the
+server-only Supabase service-role key to send an invitation. Do not copy that
+key into `.env`, Next.js, or the frontend. The former local `/api` and JSON
+store code remains for development compatibility; current application data
+services use Supabase directly.
+
+## Product boundaries
+
+- Email drafts are prepared and stored in GrowthOS. Employees send them using
+  their approved email tool and then record that action in GrowthOS.
+- Workload targets are loaded from backend configuration. Historical snapshots
+  retain the target values captured at the time.
+- No autonomous email sending, social posting, full CRM, or unrestricted access
+  to employee accounts is included.
