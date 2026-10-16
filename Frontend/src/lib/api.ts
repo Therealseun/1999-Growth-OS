@@ -1,132 +1,31 @@
-// API client configuration
-// All endpoints live under /api. The base URL is configurable via environment
-// variable and defaults to the current origin for local dev.
-const getBaseUrl = (): string => {
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (configured) return configured.replace(/\/$/, "");
-  if (typeof window === "undefined") return "http://localhost:3000/api";
-  return `${window.location.origin}/api`;
-};
+import { getSupabaseClient } from './supabase';
 
-const BASE_URL = getBaseUrl();
-
-async function throwApiError(response: Response): Promise<never> {
-  let errorBody: { code?: string; message?: string; details?: unknown } = {};
-  try {
-    errorBody = await response.json();
-  } catch {
-    errorBody = { message: response.statusText };
-  }
-  const error = new Error(
-    String(errorBody.message ?? response.statusText ?? "Request failed")
-  ) as Error & { code: string; details?: unknown };
-  error.code = String(errorBody.code ?? response.status);
-  error.details = errorBody.details;
-  throw error;
-}
-
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    if (response.status === 401 && typeof window !== "undefined") {
-      // Token expired or invalid — clear it so the auth provider reverts to signed-out.
-      setAuthToken(null);
+const base=()=> (process.env.NEXT_PUBLIC_API_BASE_URL || '/api').replace(/\/$/,'');
+export const apiClient={
+  async request<T>(path:string,options:RequestInit={}):Promise<T> {
+    const supabase=getSupabaseClient();
+    const {data:{session},error}=await supabase.auth.getSession();
+    if(error)throw error;
+    const headers=new Headers(options.headers);
+    headers.set('Accept','application/json');
+    if(options.body)headers.set('Content-Type','application/json');
+    if(session)headers.set('Authorization',`Bearer ${session.access_token}`);
+    const response=await fetch(base()+path,{...options,headers,cache:'no-store'});
+    if(!response.ok) {
+      const payload=await response.json().catch(()=>({}));
+      const detail=payload.error ?? payload;
+      const fields=detail.details?.fields?.map((f:{path:string;message:string})=>`${f.path}: ${f.message}`).join('; ');
+      const err=new Error(detail.message || response.statusText) as Error & {code:string;details:unknown};
+      err.code=detail.code || String(response.status);err.details=detail.details;
+      if(fields)err.message+=` (${fields})`;
+      throw err;
     }
-    return throwApiError(response);
-  }
-
-  // Handle no-content responses
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
-}
-
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("growthos_auth_token");
-}
-
-function setAuthToken(token: string | null): void {
-  if (typeof window === "undefined") return;
-  if (token === null) {
-    localStorage.removeItem("growthos_auth_token");
-    window.dispatchEvent(new Event("growthos:unauthorized"));
-    return;
-  }
-  localStorage.setItem("growthos_auth_token", token);
-}
-
-export const apiClient = {
-  async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const token = getAuthToken();
-    const headers: HeadersInit = {
-      ...options.headers,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${BASE_URL}${path}`, {
-      ...options,
-      headers,
-      credentials: "include",
-    });
-
-    return handleResponse<T>(response);
+    if(response.status===204)return undefined as T;
+    return response.json();
   },
-
-  async get<T>(path: string, options?: RequestInit): Promise<T> {
-    return this.request<T>(path, { ...options, method: "GET" });
-  },
-
-  async post<T>(path: string, body?: unknown, options?: RequestInit): Promise<T> {
-    return this.request<T>(path, {
-      ...options,
-      method: "POST",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  },
-
-  async put<T>(path: string, body?: unknown, options?: RequestInit): Promise<T> {
-    return this.request<T>(path, {
-      ...options,
-      method: "PUT",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  },
-
-  async patch<T>(path: string, body?: unknown, options?: RequestInit): Promise<T> {
-    return this.request<T>(path, {
-      ...options,
-      method: "PATCH",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  },
-
-  async delete<T>(path: string, options?: RequestInit): Promise<T> {
-    return this.request<T>(path, { ...options, method: "DELETE" });
-  },
-
-  async getBlob(path: string): Promise<Blob> {
-    const headers = new Headers({ Accept: "text/csv, application/json" });
-    const token = getAuthToken();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-
-    const response = await fetch(`${BASE_URL}${path}`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-    });
-    if (!response.ok) {
-      if (response.status === 401) setAuthToken(null);
-      return throwApiError(response);
-    }
-    return response.blob();
-  },
-
-  getToken: getAuthToken,
-  setToken: setAuthToken,
+  get<T>(path:string,options?:RequestInit){return this.request<T>(path,{...options,method:'GET'});},
+  post<T>(path:string,body?:unknown){return this.request<T>(path,{method:'POST',body:body===undefined?undefined:JSON.stringify(body)});},
+  patch<T>(path:string,body:unknown){return this.request<T>(path,{method:'PATCH',body:JSON.stringify(body)});},
+  put<T>(path:string,body:unknown){return this.request<T>(path,{method:'PUT',body:JSON.stringify(body)});},
+  delete<T>(path:string){return this.request<T>(path,{method:'DELETE'});},
 };

@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "defaults": {},
+  "connectors": {
+    "google_maps": {
+      "enabled": false,
+      "label": "Google Maps + website contacts",
+      "kind": "prospects",
+      "task_id": "REPLACE_WITH_SAVED_MAPS_TASK_ID",
+      "input": {
+        "searchStringsArray": "{{queries}}",
+        "locationQuery": "{{market}}",
+        "maxCrawledPlacesPerSearch": "{{count}}",
+        "scrapeContacts": true
+      },
+      "fields": {
+        "provider_record_id": "placeId",
+        "organisation": "title",
+        "email": "emails.0",
+        "website": "website",
+        "phone": "phone",
+        "location": "address",
+        "industry": "categoryName",
+        "source_url": "url"
+      }
+    },
+    "directory_search": {
+      "enabled": false,
+      "label": "Business directory — mapping template",
+      "kind": "prospects",
+      "task_id": "REPLACE_WITH_SAVED_DIRECTORY_TASK_ID",
+      "input": { "REPLACE_WITH_QUERY_INPUT_FIELD": "{{query_text}}", "REPLACE_WITH_LOCATION_INPUT_FIELD": "{{market}}", "REPLACE_WITH_COUNT_INPUT_FIELD": "{{count}}" },
+      "fields": { "organisation": "REPLACE_WITH_BUSINESS_NAME_PATH", "email": "REPLACE_WITH_EMAIL_PATH", "website": "REPLACE_WITH_WEBSITE_PATH", "source_url": "REPLACE_WITH_SOURCE_URL_PATH" }
+    },
+    "linkedin_posts": {
+      "enabled": false,
+      "label": "LinkedIn posts — mapping template",
+      "kind": "opportunities",
+      "task_id": "REPLACE_WITH_SAVED_LINKEDIN_TASK_ID",
+      "input": { "REPLACE_WITH_QUERY_INPUT_FIELD": "{{queries}}", "REPLACE_WITH_COUNT_INPUT_FIELD": "{{count}}" },
+      "fields": { "post_url": "REPLACE_WITH_POST_URL_PATH", "post_text": "REPLACE_WITH_POST_TEXT_PATH", "author": "REPLACE_WITH_AUTHOR_PATH" },
+      "constants": { "platform": "LinkedIn" }
+    },
+    "community_posts": {
+      "enabled": false,
+      "label": "Community posts — mapping template",
+      "kind": "opportunities",
+      "task_id": "REPLACE_WITH_SAVED_COMMUNITY_TASK_ID",
+      "input": { "REPLACE_WITH_QUERY_INPUT_FIELD": "{{query_text}}", "REPLACE_WITH_COUNT_INPUT_FIELD": "{{count}}" },
+      "fields": { "platform": "REPLACE_WITH_PLATFORM_PATH", "post_url": "REPLACE_WITH_POST_URL_PATH", "post_text": "REPLACE_WITH_POST_TEXT_PATH" }
+    }
+  }
+}

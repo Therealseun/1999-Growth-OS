@@ -42,20 +42,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const supabase = getSupabaseClient();
+    let supabase: ReturnType<typeof getSupabaseClient>;
+    try { supabase = getSupabaseClient(); } catch {
+      setIsLoading(false);
+      return;
+    }
+    let version=0;
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      const current=++version;
       window.setTimeout(() => {
         void (async () => {
           try {
             const profile = session ? await getCurrentProfile() : null;
-            if (!cancelled) setUser(profile ? profileToUser(profile) : null);
+            if (!cancelled && current===version) setUser(profile ? profileToUser(profile) : null);
           } catch {
-            await supabase.auth.signOut();
-            if (!cancelled) setUser(null);
+            if (!cancelled && current===version) setUser(null);
           } finally {
-            if (!cancelled) setIsLoading(false);
+            if (!cancelled && current===version) setIsLoading(false);
           }
         })();
       }, 0);

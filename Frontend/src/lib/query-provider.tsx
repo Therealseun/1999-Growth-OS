@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { useAuth } from './auth-provider';
 
 function makeQueryClient() {
   return new QueryClient({
@@ -19,6 +20,10 @@ function makeQueryClient() {
 }
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
+  const {user}=useAuth();
+  return <AccountQueries key={user?.id ?? 'signed-out'}>{children}</AccountQueries>;
+}
+function AccountQueries({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => makeQueryClient());
 
   return (
