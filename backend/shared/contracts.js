@@ -1,0 +1,10 @@
+import { apifyConnectorId } from '../ai/apify-config.js';
+import { z } from 'zod';
+import { opportunitySchema } from '../ai/contracts.js';
+const text=z.string().trim().min(1),uuid=z.string().uuid();
+export const settingsSchema=z.object({offer:text.max(4000),location:text.max(500)}).strict();
+export const jobSchema=z.object({kind:z.enum(['NICHE_ANALYSIS','PROSPECT_SEARCH','EMAIL_GENERATION','SEO_GENERATION','LEAD_MAGNET_GENERATION']),idempotency_key:text.max(160),requested_count:z.number().int().positive().max(10000).default(1),employee_id:uuid.optional(),research_provider:z.enum(['sift','apify']).optional(),apify_connector:apifyConnectorId.optional(),approved_platforms:z.array(text.max(200)).max(50).default([]),messaging_constraints:z.array(text.max(2000)).max(50).default([]),opportunities:z.array(opportunitySchema).max(10000).optional()}).strict();
+export const retrySchema=z.object({research_provider:z.enum(['sift','apify']).optional(),apify_connector:apifyConnectorId.optional(),opportunities:z.array(opportunitySchema).max(10000).optional()}).strict();
+export const recoverySchema=z.union([z.object({run_id:text.regex(/^[A-Za-z0-9_-]{1,160}$/)}).strict(),z.object({confirmed_not_started:z.literal(true)}).strict()]);
+export const importSchema=z.object({email:z.string().email().optional(),first_name:z.string().trim().max(200).optional(),last_name:z.string().trim().max(200).optional(),status:z.enum(['SEED','QUALIFIED']).default('SEED')}).strict();
+export const idParams=z.object({id:uuid});

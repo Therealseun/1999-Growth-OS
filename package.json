@@ -1,0 +1,18 @@
+{
+  "name": "1999-growthos",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "node scripts/dev.mjs",
+    "check:setup": "node scripts/dev.mjs --check",
+    "bootstrap:admin": "node --env-file=backend/.env backend/scripts/bootstrap-admin.js",
+    "test": "npm --prefix backend run test:ai",
+    "typecheck": "npm --prefix Frontend run typecheck",
+    "build": "npm --prefix Frontend run build",
+    "check:database": "node --env-file=backend/.env backend/scripts/check-shared-database.js"
+  }
+}

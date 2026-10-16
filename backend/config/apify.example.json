@@ -1,0 +1,30 @@
+{
+    "version":  2,
+    "defaults":  {
+                     "prospects":  "google_maps"
+                 },
+    "connectors":  {
+                       "google_maps":  {
+                                           "enabled":  true,
+                                           "label":  "Google Maps + website contacts",
+                                           "kind":  "prospects",
+                                           "task_id":  "REPLACE_WITH_SAVED_GOOGLE_MAPS_TASK_ID",
+                                           "input":  {
+                                                         "searchStringsArray":  "{{queries}}",
+                                                         "locationQuery":  "{{market}}",
+                                                         "maxCrawledPlacesPerSearch":  "{{count}}",
+                                                         "scrapeContacts":  true
+                                                     },
+                                           "fields":  {
+                                                          "provider_record_id":  "placeId",
+                                                          "organisation":  "title",
+                                                          "email":  "emails.0",
+                                                          "website":  "website",
+                                                          "phone":  "phone",
+                                                          "location":  "address",
+                                                          "industry":  "categoryName",
+                                                          "source_url":  "url"
+                                                      }
+                                       }
+                   }
+}
