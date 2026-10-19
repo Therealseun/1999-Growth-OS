@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { query } from '../../../lib/db.js';
-import { notFound } from '../../../lib/errors.js';
-import { route } from '../../../lib/http.js';
+import { query } from '../../../../lib/db.js';
+import { notFound } from '../../../../lib/errors.js';
+import { route } from '../../../../lib/http.js';
 
 export const GET = route({}, async ({ session, params }) => {
   const id = z.string().uuid().parse(params.id);

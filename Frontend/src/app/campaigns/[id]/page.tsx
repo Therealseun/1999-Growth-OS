@@ -1,5 +1,6 @@
 "use client";
 
+import { AiPanel } from "@/components/ai/ai-panel";
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -168,8 +169,10 @@ export default function CampaignDetailPage() {
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="intelligence">Niche Intelligence</TabsTrigger>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          <TabsTrigger value="ai">AI workspace</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="ai"><AiPanel campaignId={id}/></TabsContent>
         <TabsContent value="details">
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>
@@ -238,7 +241,7 @@ export default function CampaignDetailPage() {
           ) : !intelligence?.data ? (
             <EmptyState
               title="No niche intelligence yet"
-              description="Intelligence will appear here after AI research completes for this campaign."
+              description="Team research appears here. AI analysis and approval are available in the AI workspace tab."
               action={
                 <Button
                   variant="secondary"

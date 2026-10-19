@@ -1,4 +1,18 @@
 import { z } from 'zod';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseEnv } from 'node:util';
+
+const envFile = resolve(dirname(fileURLToPath(import.meta.url)), '../.env');
+if (existsSync(envFile)) {
+  const fileConfig = parseEnv(readFileSync(envFile, 'utf8'));
+  for (const [key, value] of Object.entries(fileConfig)) {
+    if ((process.env[key] === undefined || process.env[key] === '') && value !== '') {
+      process.env[key] = value;
+    }
+  }
+}
 
 // Empty strings in .env files count as "not set".
 const schema = z.object({
@@ -11,9 +25,19 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
   SUPABASE_JWT_SECRET: z.string().optional(),
+  ADMIN_EMAIL: z.string().trim().email().optional(),
+  ADMIN_PASSWORD: z.string().min(8).max(72).optional(),
   CRON_SECRET: z.string().min(32, 'must be at least 32 characters'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CORS_ORIGINS: z.string().optional(),
+}).superRefine((config, context) => {
+  if (Boolean(config.ADMIN_EMAIL) !== Boolean(config.ADMIN_PASSWORD)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ADMIN_EMAIL'],
+      message: 'ADMIN_EMAIL and ADMIN_PASSWORD must be set together',
+    });
+  }
 });
 
 let cached;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { withTransaction } from '../../../../../../../lib/db.js';
-import { conflict, notFound } from '../../../../../../../lib/errors.js';
-import { route } from '../../../../../../../lib/http.js';
+import { withTransaction } from '../../../../../../lib/db.js';
+import { conflict, notFound } from '../../../../../../lib/errors.js';
+import { route } from '../../../../../../lib/http.js';
 
 export const POST = route(
   { body: z.object({ confirmedSentExternally: z.literal(true) }) },

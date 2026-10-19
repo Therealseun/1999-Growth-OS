@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { query } from '../../../lib/db.js';
-import { notFound } from '../../../lib/errors.js';
-import { route } from '../../../lib/http.js';
+import { query } from '../../../../lib/db.js';
+import { notFound } from '../../../../lib/errors.js';
+import { route } from '../../../../lib/http.js';
 
 function array(value) {
   return Array.isArray(value) ? value : [];

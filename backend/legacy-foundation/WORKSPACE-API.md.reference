@@ -1,0 +1,74 @@
+# Connected workspace API
+
+Every endpoint below requires a Supabase access token in `Authorization: Bearer ...`. The backend reloads profile role, status and department for each request. Pending/disabled users are denied. Managers are scoped to their department; employees see their own work and evidence. Errors use `{ "error": { "code", "message", "details"? } }`.
+
+The browser calls `/api` on the frontend origin. The server proxy forwards to `GROWTHOS_BACKEND_URL`. No AI or database credentials are sent to the browser.
+
+| Method | Path | Access and behavior |
+| --- | --- | --- |
+| GET | /api/auth/me | Active caller's current profile |
+| PATCH | /api/profile | Change caller's name; body `{name}` |
+| GET | /api/workspace | Scoped campaigns, people, departments, assignments, recent jobs, targets and last 30 days of daily reports; response `{data}` |
+| POST | /api/workspace | Validated management command below; response `{data}` |
+| GET | /api/workspace/campaigns/:id | Admin/scoped manager: campaign, profile versions, latest 100 jobs, prospect counts |
+| GET | /api/workspace/prospects | Admin/scoped manager: paginated prospects |
+| GET | /api/workspace/tasks | Scoped paginated task ledger across the three workstreams |
+| GET | /api/workspace/tasks/:id?workstream=EMAIL | Scoped full task, email recipient where applicable, immutable evidence |
+| POST | /api/workspace/tasks/:id?workstream=EMAIL | Review, disposition or evidence-backed completion below |
+
+Lists return `{data:[],total,page,pageSize}`. `page` starts at 1; default `pageSize=50`, maximum 100. Task filters: `campaign_id`, `workstream` (EMAIL / SEO / LEAD_MAGNET), `status`. Prospect filters: `campaign_id`, qualification `status`, `search` (organisation/email). Employees can only retrieve their own assigned task details; unassigned pools are management-only.
+
+## Management commands
+
+POST `/api/workspace`, with an `action` field and the listed fields. Unknown fields are rejected.
+
+| action | Fields | Role |
+| --- | --- | --- |
+| create_department | name | Admin |
+| update_person | id, role, status, department_id (UUID or null) | Admin |
+| create_campaign | name, niche, offer, location, objective, department_id | Admin / scoped manager |
+| update_campaign | id, name, niche, offer, location, objective, status | Admin / scoped manager |
+| set_targets | campaign_id, email, seo, lead (nonnegative integers), effective_from (YYYY-MM-DD) | Admin |
+| assign_employee | campaign_id, employee_id, active (boolean) | Admin / scoped manager |
+| prepare_workloads | campaign_id | Admin / scoped manager |
+| allocate | workload_id | Admin / scoped manager |
+
+Roles: ADMIN / MANAGER / EMPLOYEE. Profile status: PENDING / ACTIVE / DISABLED. Active non-admins require a department. The final active admin cannot be demoted/disabled. Teammates sign up through Supabase first; this endpoint changes access, not passwords.
+
+Campaign status: DRAFT / ACTIVE / PAUSED / ARCHIVED. Only one active campaign is allowed per department. Target rows are append-only and unique for each scope/effective date. Dates cannot be in the past. Prepared daily workloads keep their original targets. Update a later date to change future targets.
+
+`prepare_workloads` requires an ACTIVE campaign, effective targets and at least one active assigned employee. It syncs automatic department assignments, respects manual opt-outs, expires old comment opportunities for this campaign, inserts today's missing workload snapshots and fills each queue from available READY tasks. Repeating it does not duplicate or rewrite snapshots. Application day uses `app_today()` (configured timezone, initially Africa/Lagos).
+
+The worker calls the same scoped allocator when delivering drafts. Allocation counts existing OPEN tasks and completions on the work date against each saved workstream target. Inactive/historical workloads leave new drafts in the pool. This package provides a manual daily preparation action; it does not install an unattended daily scheduler.
+
+## Task transitions
+
+POST task detail URL with the correct `workstream` query:
+
+```json
+{"action":"review"}
+```
+
+READY/REVIEWED → REVIEWED with a review timestamp.
+
+```json
+{"action":"skip","status":"SKIPPED","reason":"Contact no longer fits the campaign."}
+```
+
+`status` may be SKIPPED or INVALID, with a required reason. Only open tasks can change.
+
+```json
+{"action":"complete","evidence_type":"URL","evidence_value":"https://example.com/published/article","confirmed_external_execution":true}
+```
+
+Completion requires an assigned, REVIEWED task and explicit external-execution confirmation. SEO and comments require HTTP(S) URLs. Email allows either a URL or a TEXT execution note. Completion atomically inserts append-only evidence and sets SENT, PUBLISHED or POSTED plus timestamps. Completed tasks are locked; repeated completion returns 409. This endpoint records a user's assertion of external execution; it does not independently verify mailbox delivery or publication.
+
+Reports are read from `v_daily_report`, using saved targets and actual completion timestamps. Completion percentage is capped per workstream so excess emails cannot compensate for missing articles/comments. The frontend CSV export contains the currently filtered visible report rows; it is not a scheduled report service.
+
+## AI routes
+
+The campaign screen uses the existing job/profile/prospect qualification endpoints documented in AI-INTEGRATION.md. All queued jobs persist in the database and require the separate worker. One generation job is allowed per workload/workstream; retry it after fixing a shortfall. The requesting user and input/profile snapshots are retained. New niche analysis creates a draft for human approval.
+
+## Operational limits
+
+Workspace snapshots are intended for the current small-team deployment. Campaigns, employees and target settings are not paginated yet; jobs are limited to 100 and reports to the last 30 days. Task/prospect lists are paginated. Bulk administration, team invitation emails, database migration from the old prototype, historical report pagination, and unattended daily scheduling are outside this revision.

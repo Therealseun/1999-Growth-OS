@@ -2,12 +2,20 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
 import { closePool } from './lib/db.js';
 import { getConfig } from './lib/config.js';
+import { seedInitialAdmin } from './lib/initial-admin.js';
 
 let PORT;
 try {
   ({ PORT } = getConfig());
 } catch (err) {
   console.error(err.message);
+  process.exit(1);
+}
+try {
+  await seedInitialAdmin();
+} catch (err) {
+  console.error(`Initial administrator setup failed: ${err.message}`);
+  await closePool();
   process.exit(1);
 }
 const app = await createApp();

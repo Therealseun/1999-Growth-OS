@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "description": "GrowthOS V1 backend API (business logic, database, auth, task orchestration)",
-  "engines": { "node": ">=20.11" },
+  "engines": { "node": ">=20.12" },
   "scripts": {
     "dev": "node --watch --env-file=.env server.js",
-    "start": "node server.js",
+    "start": "node --env-file=.env server.js",
     "test": "vitest run"
   },
   "dependencies": {

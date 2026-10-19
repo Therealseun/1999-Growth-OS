@@ -25,7 +25,7 @@ repo/
 
 ## Run it
 
-Needs Node 20.11 or newer (`node -v`).
+Needs Node 20.12 or newer (`node -v`).
 
 ```
 cd backend
@@ -35,6 +35,8 @@ npm install
 1. Copy `.env.example` to `.env` and fill it in. Where each value comes from:
    - `DATABASE_URL`: Supabase dashboard, Connect, Transaction pooler (port 6543), with the database password filled in.
    - `SUPABASE_URL`, `SUPABASE_ANON_KEY`: Project Settings, API.
+   - `SUPABASE_SERVICE_ROLE_KEY`: Project Settings, API; required to create the initial administrator.
+   - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: credentials for the initial administrator. The account is created and activated at backend startup if it does not exist.
    - `CRON_SECRET`: run `openssl rand -hex 32`, or type any random 40 characters.
    - `CORS_ORIGINS`: the frontend address, `http://localhost:3000` for local work.
    - `DATABASE_SSL`: leave `verify`. On a certificate error, paste the CA from Database, SSL Configuration into `DATABASE_CA_CERT`.
@@ -42,16 +44,11 @@ npm install
    `00_supabase_stub.sql`, it is only for local tests. Check with `select count(*) from app_settings;` which must return 5.
 3. **Token signing.** Project Settings, JWT Keys. Leave `SUPABASE_JWT_SECRET` empty on projects with asymmetric signing keys.
    Set it only for a legacy project that still uses a shared secret.
-4. **Start.** `npm run dev`, then open http://localhost:4000/api/health. Expect
+4. **Start.** `npm run dev` or `npm start`; both load `backend/.env`. Then open http://localhost:4000/api/health. Expect
    `{"ok":true,"database":true,"schema":true,...}`. A bad `.env` stops the server at startup and names the variable.
-5. **First admin.** Sign up with `POST /api/auth/signup`, then in the SQL Editor:
-   ```sql
-   update profiles set role = 'ADMIN', status = 'ACTIVE', approved_at = now()
-   where email = 'you@yourcompany.com';
-   ```
-   Then `POST /api/auth/login` and `GET /api/auth/me` with the header `Authorization: Bearer <access_token>`.
+5. **First admin.** Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`, then start the backend. The configured account is created in Supabase Auth and activated as an administrator automatically. Keep the service-role key and admin password private.
 
-`.env` is read only by `npm run dev`. In production the host supplies real environment variables and runs `npm start`.
+In production, the host supplies real environment variables and starts the server with `node server.js` (without requiring a `.env` file).
 
 ## How the frontend calls it
 
