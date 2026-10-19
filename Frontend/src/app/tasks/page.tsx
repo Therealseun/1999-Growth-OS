@@ -5,7 +5,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/lib/tasks.api";
 import type { Task } from "@/lib/types";
 import {
-  Button,
   Badge,
   Table,
   TableHeader,
@@ -23,7 +22,7 @@ import {
   ErrorState,
   Skeleton,
 } from "@/components/ui";
-import { ArrowLeft, Play, CheckCircle, Clock, AlertCircle, MoreHorizontal, FileText, Mail, Search, Bookmark } from "lucide-react";
+import { CheckCircle, MoreHorizontal, FileText, Mail, Search, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -33,17 +32,25 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 };
 
 const STATUS_VARIANT: Record<string, "accent" | "muted" | "success" | "warning" | "danger"> = {
-  PENDING: "muted",
-  IN_PROGRESS: "accent",
-  COMPLETED: "success",
-  BLOCKED: "danger",
+  READY: "muted",
+  REVIEWED: "accent",
+  SENT: "success",
+  PUBLISHED: "success",
+  POSTED: "success",
+  SKIPPED: "danger",
+  INVALID: "danger",
+  EXPIRED: "danger",
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: "Pending",
-  IN_PROGRESS: "In progress",
-  COMPLETED: "Completed",
-  BLOCKED: "Blocked",
+  READY: "Ready",
+  REVIEWED: "Reviewed",
+  SENT: "Sent",
+  PUBLISHED: "Published",
+  POSTED: "Posted",
+  SKIPPED: "Skipped",
+  INVALID: "Invalid",
+  EXPIRED: "Expired",
 };
 
 export default function TasksPage() {
@@ -66,7 +73,7 @@ export default function TasksPage() {
   const tasks: Task[] = (data?.data as Task[]) ?? [];
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: Task["status"] }) =>
+    mutationFn: ({ id, status }: { id: string; status: "READY" | "REVIEWED" }) =>
       tasksApi.update(id, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -90,10 +97,14 @@ export default function TasksPage() {
             aria-label="Filter by status"
           >
             <option value="">All status</option>
-            <option value="PENDING">Pending</option>
-            <option value="IN_PROGRESS">In progress</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="BLOCKED">Blocked</option>
+            <option value="READY">Ready</option>
+            <option value="REVIEWED">Reviewed</option>
+            <option value="SENT">Sent</option>
+            <option value="PUBLISHED">Published</option>
+            <option value="POSTED">Posted</option>
+            <option value="SKIPPED">Skipped</option>
+            <option value="INVALID">Invalid</option>
+            <option value="EXPIRED">Expired</option>
           </select>
           <select
             value={typeFilter}
@@ -196,37 +207,12 @@ export default function TasksPage() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {task.status === "PENDING" && (
+                      {task.status === "READY" && (
                         <DropdownMenuItem
-                          onClick={() => updateMutation.mutate({ id: task.id, status: "IN_PROGRESS" })}
-                        >
-                          <Play className="mr-2 h-4 w-4" />
-                          Start task
-                        </DropdownMenuItem>
-                      )}
-                      {task.status === "IN_PROGRESS" && (
-                        <DropdownMenuItem
-                          onClick={() => updateMutation.mutate({ id: task.id, status: "COMPLETED" })}
+                          onClick={() => updateMutation.mutate({ id: task.id, status: "REVIEWED" })}
                         >
                           <CheckCircle className="mr-2 h-4 w-4" />
-                          Mark completed
-                        </DropdownMenuItem>
-                      )}
-                      {(task.status === "PENDING" || task.status === "IN_PROGRESS") && (
-                        <DropdownMenuItem
-                          onClick={() => updateMutation.mutate({ id: task.id, status: "BLOCKED" })}
-                          className="text-[var(--color-luxe-danger)]"
-                        >
-                          <AlertCircle className="mr-2 h-4 w-4" />
-                          Mark blocked
-                        </DropdownMenuItem>
-                      )}
-                      {task.status === "COMPLETED" && (
-                        <DropdownMenuItem
-                          onClick={() => updateMutation.mutate({ id: task.id, status: "PENDING" })}
-                        >
-                          <Clock className="mr-2 h-4 w-4" />
-                          Reopen task
+                          Mark reviewed
                         </DropdownMenuItem>
                       )}
                     </DropdownMenuContent>

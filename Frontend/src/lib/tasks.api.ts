@@ -1,186 +1,110 @@
-import { getSupabaseClient } from "./supabase";
-import { mapEvidence, mapTask, throwSupabaseError } from "./supabase-data";
+import { apiClient } from "./api";
 import type { Evidence, Task } from "./types";
 
-async function getNames(ids: string[]) {
-  const uniqueIds = [...new Set(ids.filter(Boolean))];
-  if (!uniqueIds.length) return new Map<string, string>();
-  const { data, error } = await getSupabaseClient()
-    .from("profiles")
-    .select("id,full_name")
-    .in("id", uniqueIds);
-  if (error) throwSupabaseError(error);
-  return new Map((data ?? []).map((profile) => [profile.id, profile.full_name]));
+type TaskRow = {
+  id: string;
+  type: Task["type"];
+  title: string;
+  description: string | null;
+  status: Task["status"];
+  assigned_to: string | null;
+  assigned_to_name: string | null;
+  assigned_by: string | null;
+  assigned_by_name: string | null;
+  campaign_id: string;
+  due_date: string | null;
+  completed_at: string | null;
+  created_at: string;
+  priority: Task["priority"];
+};
+
+function mapTask(row: TaskRow): Task {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    assignedTo: row.assigned_to ?? "",
+    assignedToName: row.assigned_to_name ?? undefined,
+    assignedBy: row.assigned_by,
+    assignedByName: row.assigned_by_name,
+    campaignId: row.campaign_id,
+    dueDate: row.due_date,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    priority: row.priority,
+  };
 }
 
-async function mapTasks(rows: Record<string, unknown>[]) {
-  const names = await getNames(
-    rows.flatMap((row) => [String(row.assigned_to ?? ""), String(row.assigned_by ?? "")])
-  );
-  return rows.map((row) => ({
-    ...mapTask(row),
-    assignedToName: names.get(String(row.assigned_to)) ?? String(row.assigned_to),
-    assignedByName: names.get(String(row.assigned_by)) ?? null,
-  })) as Task[];
+function mapEvidence(row: Record<string, unknown>): Evidence {
+  return {
+    id: String(row.id),
+    taskId: String(row.task_id),
+    workstream: String(row.workstream) as Evidence["workstream"],
+    type: String(row.evidence_type) as Evidence["type"],
+    evidenceValue: row.evidence_value == null ? null : String(row.evidence_value),
+    storagePath: row.storage_path == null ? null : String(row.storage_path),
+    submittedAt: String(row.submitted_at),
+    submittedBy: String(row.submitted_by),
+  };
 }
 
-async function getTaskPage(
-  query: {
-    status?: string;
-    type?: string;
-    assignedTo?: string;
-    campaignId?: string;
-    page?: number;
-    pageSize?: number;
-  },
-  scope: "all" | "mine"
-) {
-  const supabase = getSupabaseClient();
-  let request = supabase.from("tasks").select("*").order("created_at", { ascending: false });
-  if (scope === "mine") {
-    const { data: auth, error: authError } = await supabase.auth.getUser();
-    if (authError) throw authError;
-    if (!auth.user) throw new Error("Your session has expired. Please sign in again.");
-    request = request.eq("assigned_to", auth.user.id);
+function queryString(query?: Record<string, string | number | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
   }
-  if (query.status) request = request.eq("status", query.status);
-  if (query.type) request = request.eq("type", query.type);
-  if (query.assignedTo) request = request.eq("assigned_to", query.assignedTo);
-  if (query.campaignId) request = request.eq("campaign_id", query.campaignId);
-  const { data, error } = await request;
-  if (error) throwSupabaseError(error);
-  const rows = await mapTasks(data ?? []);
-  const page = query.page ?? 1;
-  const pageSize = query.pageSize ?? 50;
-  const start = (page - 1) * pageSize;
-  return { data: rows.slice(start, start + pageSize), total: rows.length, page, pageSize };
+  return params.size ? `?${params}` : "";
 }
 
 export const tasksApi = {
   async list(query?: {
-    status?: string;
-    type?: string;
-    assignedTo?: string;
-    campaignId?: string;
-    page?: number;
-    pageSize?: number;
+    status?: string; type?: string; assignedTo?: string; campaignId?: string; page?: number; pageSize?: number;
   }) {
-    return getTaskPage(query ?? {}, "all");
+    const result = await apiClient.get<{ data: TaskRow[]; total: number; page: number; pageSize: number }>(
+      `/tasks${queryString(query)}`
+    );
+    return { ...result, data: result.data.map(mapTask) };
   },
 
   async get(id: string) {
-    const { data, error } = await getSupabaseClient().from("tasks").select("*").eq("id", id).single();
-    if (error) throwSupabaseError(error);
-    const [task] = await mapTasks([data]);
-    return { data: task };
+    const result = await apiClient.get<{ data: TaskRow }>(`/tasks/${id}`);
+    return { data: mapTask(result.data) };
   },
 
-  async create(payload: {
-    type: "EMAIL" | "SEO" | "LEAD_MAGNET";
-    title: string;
-    description?: string;
-    campaignId?: string;
-    assignedTo?: string;
-    priority?: string;
-    dueDate?: string;
-  }) {
-    const { data: auth, error: authError } = await getSupabaseClient().auth.getUser();
-    if (authError) throw authError;
-    if (!auth.user) throw new Error("Your session has expired. Please sign in again.");
-    const { data, error } = await getSupabaseClient()
-      .from("tasks")
-      .insert({
-        type: payload.type,
-        title: payload.title,
-        description: payload.description ?? null,
-        campaign_id: payload.campaignId ?? null,
-        assigned_to: payload.assignedTo ?? auth.user.id,
-        priority: payload.priority ?? null,
-        due_date: payload.dueDate ?? null,
-      })
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    const [task] = await mapTasks([data]);
-    return { data: task };
-  },
-
-  async update(
-    id: string,
-    payload: Partial<{ status: string; title: string; description: string; priority: string; dueDate: string }>
-  ) {
-    const patch: Record<string, string | null> = {};
-    if (payload.status !== undefined) {
-      patch.status = payload.status;
-      if (payload.status === "COMPLETED") patch.completed_at = new Date().toISOString();
-      else patch.completed_at = null;
-    }
-    if (payload.title !== undefined) patch.title = payload.title;
-    if (payload.description !== undefined) patch.description = payload.description;
-    if (payload.priority !== undefined) patch.priority = payload.priority;
-    if (payload.dueDate !== undefined) patch.due_date = payload.dueDate;
-    const { data, error } = await getSupabaseClient()
-      .from("tasks")
-      .update(patch)
-      .eq("id", id)
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    const [task] = await mapTasks([data]);
-    return { data: task };
-  },
-
-  async delete(id: string) {
-    const { error } = await getSupabaseClient().from("tasks").delete().eq("id", id);
-    if (error) throwSupabaseError(error);
+  async update(id: string, payload: { status: "READY" | "REVIEWED" }) {
+    const result = await apiClient.patch<{ data: { id: string; status: Task["status"] } }>(
+      `/tasks/${id}`,
+      payload
+    );
+    return result;
   },
 
   async submitEvidence(
     taskId: string,
-    payload: { type: "LINK" | "SCREENSHOT" | "NOTE" | "FILE"; title: string; url?: string; metadata?: string }
+    payload: { type: "LINK" | "NOTE"; url?: string; note?: string }
   ) {
-    let metadata: unknown = null;
-    if (payload.metadata) {
-      try {
-        metadata = JSON.parse(payload.metadata);
-      } catch {
-        metadata = { text: payload.metadata };
-      }
-    }
-    const { data: auth, error: authError } = await getSupabaseClient().auth.getUser();
-    if (authError) throw authError;
-    if (!auth.user) throw new Error("Your session has expired. Please sign in again.");
-    const { data, error } = await getSupabaseClient()
-      .from("task_evidence")
-      .insert({
-        task_id: taskId,
-        type: payload.type,
-        title: payload.title,
-        url: payload.url ?? null,
-        metadata,
-        submitted_by: auth.user.id,
-      })
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapEvidence(data) as Evidence };
+    const evidenceType = payload.type === "LINK" ? "URL" : "TEXT";
+    const evidenceValue = payload.type === "LINK" ? payload.url?.trim() : payload.note?.trim();
+    if (!evidenceValue) throw new Error(payload.type === "LINK" ? "Enter the evidence URL." : "Enter the evidence note.");
+    const result = await apiClient.post<{ data: Record<string, unknown> }>(`/tasks/${taskId}/evidence`, {
+      evidenceType,
+      evidenceValue,
+    });
+    return { data: mapEvidence(result.data) };
   },
 
   async getEvidence(taskId: string) {
-    const { data, error } = await getSupabaseClient()
-      .from("task_evidence")
-      .select("*")
-      .eq("task_id", taskId)
-      .order("submitted_at", { ascending: false });
-    if (error) throwSupabaseError(error);
-    return { data: (data ?? []).map((row) => mapEvidence(row) as Evidence) };
+    const result = await apiClient.get<{ data: Array<Record<string, unknown>> }>(`/tasks/${taskId}/evidence`);
+    return { data: result.data.map(mapEvidence) };
   },
 
   async getMyTasks(query?: { status?: string; type?: string; page?: number; pageSize?: number }) {
-    return getTaskPage(query ?? {}, "mine");
+    return this.list(query);
   },
 
   async getTeamTasks(query?: { status?: string; type?: string; page?: number; pageSize?: number }) {
-    return getTaskPage(query ?? {}, "all");
+    return this.list(query);
   },
 };

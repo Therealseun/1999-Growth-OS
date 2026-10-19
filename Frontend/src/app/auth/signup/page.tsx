@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth-provider";
 import { cn } from "@/lib/utils";
 
 export default function SignupPage() {
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -17,6 +17,7 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmationSent, setConfirmationSent] = useState(false);
+  const [accountMessage, setAccountMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -34,12 +35,8 @@ export default function SignupPage() {
     setSubmitting(true);
     try {
       const result = await authApi.register({ name, email, password });
-      if (result.requiresEmailConfirmation) {
-        setConfirmationSent(true);
-        return;
-      }
-      await login(email, password);
-      router.replace("/dashboard");
+      setAccountMessage(result.message);
+      setConfirmationSent(true);
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -95,11 +92,10 @@ export default function SignupPage() {
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-luxe-accent-muted)]">
                 <Mail className="h-5 w-5 text-[var(--color-luxe-accent)]" aria-hidden="true" />
               </div>
-              <h2 className="text-lg font-semibold">Check your email</h2>
+              <h2 className="text-lg font-semibold">Account request received</h2>
               <p className="text-sm leading-6 text-[var(--color-luxe-muted)]">
-                If email confirmation is enabled, Supabase has sent a verification link to{" "}
+                {accountMessage} Your request was submitted for{" "}
                 <span className="font-medium text-[var(--color-luxe-text)]">{email}</span>.
-                Confirm your address, then sign in.
               </p>
               <Link className="luxe-btn luxe-btn-primary w-full" href="/auth/login">
                 Continue to sign in

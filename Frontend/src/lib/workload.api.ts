@@ -1,87 +1,83 @@
-import { getSupabaseClient } from "./supabase";
-import { mapSnapshot, mapTarget, throwSupabaseError } from "./supabase-data";
-import type { UserRole, WorkloadSnapshot, WorkloadTarget } from "./types";
+import { apiClient } from "./api";
+import type { WorkloadSnapshot, WorkloadTarget } from "./types";
 
-async function getSnapshots(
-  userId?: string,
-  period?: "TODAY" | "THIS_WEEK" | "THIS_MONTH"
-) {
-  let request = getSupabaseClient()
-    .from("workload_snapshots")
-    .select("*")
-    .order("captured_at", { ascending: false });
-  if (userId) request = request.eq("user_id", userId);
-  if (period) request = request.eq("period", period);
-  const { data, error } = await request;
-  if (error) throwSupabaseError(error);
-  return (data ?? []).map((row) => mapSnapshot(row) as WorkloadSnapshot);
+function queryString(query?: Record<string, string | number | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  return params.size ? `?${params}` : "";
 }
 
-async function getTargets(): Promise<WorkloadTarget[]> {
-  const { data, error } = await getSupabaseClient()
-    .from("workload_targets")
-    .select("*")
-    .order("role", { ascending: true });
-  if (error) throwSupabaseError(error);
-  return (data ?? []).map((row) => mapTarget(row) as WorkloadTarget);
+function mapTarget(row: Record<string, unknown>): WorkloadTarget {
+  return {
+    id: String(row.id),
+    campaignId: row.campaign_id == null ? null : String(row.campaign_id),
+    campaignName: row.campaign_name == null ? null : String(row.campaign_name),
+    emailDailyTarget: Number(row.email_daily_target),
+    seoDailyTarget: Number(row.seo_daily_target),
+    leadMagnetDailyTarget: Number(row.lead_magnet_daily_target),
+    workdaysPerMonth: Number(row.workdays_per_month),
+    effectiveFrom: String(row.effective_from),
+    updatedAt: String(row.updated_at),
+    updatedBy: row.updated_by == null ? null : String(row.updated_by),
+  };
+}
+
+function mapSnapshot(row: Record<string, unknown>): WorkloadSnapshot {
+  return {
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    campaignName: String(row.campaign_name),
+    userId: String(row.user_id),
+    employeeName: String(row.employee_name),
+    workDate: String(row.work_date),
+    emailTarget: Number(row.email_target_snapshot),
+    seoTarget: Number(row.seo_target_snapshot),
+    leadMagnetTarget: Number(row.lead_magnet_target_snapshot),
+    emailCompleted: Number(row.email_completed ?? 0),
+    seoCompleted: Number(row.seo_completed ?? 0),
+    leadMagnetCompleted: Number(row.lead_magnet_completed ?? 0),
+    totalCompleted: Number(row.total_completed ?? 0),
+    completionPct: row.completion_pct == null ? null : Number(row.completion_pct),
+    generatedAt: String(row.generated_at),
+  };
 }
 
 export const workloadApi = {
-  async getTargets() {
-    return { data: await getTargets() };
+  async getTargets(query?: { campaignId?: string }) {
+    const result = await apiClient.get<{ data: Array<Record<string, unknown>> }>(
+      `/workload/targets${queryString(query)}`
+    );
+    return { data: result.data.map(mapTarget) };
   },
 
-  async updateTarget(
-    role: UserRole,
-    payload: { dailyTaskTarget: number; weeklyTaskTarget: number; activeCampaignsTarget?: number }
-  ) {
-    const { data, error } = await getSupabaseClient()
-      .from("workload_targets")
-      .upsert(
-        {
-          role,
-          daily_task_target: payload.dailyTaskTarget,
-          weekly_task_target: payload.weeklyTaskTarget,
-          active_campaigns_target: payload.activeCampaignsTarget ?? null,
-        },
-        { onConflict: "role" }
-      )
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapTarget(data) as WorkloadTarget };
+  async updateTarget(payload: {
+    campaignId?: string;
+    effectiveFrom: string;
+    emailDailyTarget: number;
+    seoDailyTarget: number;
+    leadMagnetDailyTarget: number;
+    workdaysPerMonth?: number;
+  }) {
+    const result = await apiClient.post<{ data: Record<string, unknown> }>("/workload/targets", payload);
+    return { data: mapTarget(result.data) };
   },
 
-  async getSnapshots(userId: string, period?: "TODAY" | "THIS_WEEK" | "THIS_MONTH") {
-    return { data: await getSnapshots(userId, period) };
+  async getSnapshots(query?: { employeeId?: string; campaignId?: string; dateFrom?: string; dateTo?: string }) {
+    const result = await apiClient.get<{ data: Array<Record<string, unknown>> }>(
+      `/workload/snapshots${queryString(query)}`
+    );
+    return { data: result.data.map(mapSnapshot) };
   },
 
-  async getAllSnapshots(period?: "TODAY" | "THIS_WEEK" | "THIS_MONTH") {
-    return { data: await getSnapshots(undefined, period) };
+  async getAllSnapshots() {
+    return this.getSnapshots();
   },
 
   async getUserWorkload(userId: string) {
-    const supabase = getSupabaseClient();
-    const [{ data: profile, error: profileError }, snapshots, targets] = await Promise.all([
-      supabase.from("profiles").select("role").eq("id", userId).single(),
-      getSnapshots(userId),
-      getTargets(),
-    ]);
-    if (profileError) throwSupabaseError(profileError);
-    const emptyTarget: WorkloadTarget = {
-      id: "",
-      role: profile.role,
-      dailyTaskTarget: 0,
-      weeklyTaskTarget: 0,
-      activeCampaignsTarget: null,
-      updatedAt: new Date(0).toISOString(),
-    };
-    return {
-      data: {
-        userId,
-        currentTarget: targets.find((target) => target.role === profile.role) ?? emptyTarget,
-        snapshots,
-      },
-    };
+    const snapshots = await this.getSnapshots({ employeeId: userId });
+    const targets = await this.getTargets();
+    return { data: { userId, targets: targets.data, snapshots: snapshots.data } };
   },
 };

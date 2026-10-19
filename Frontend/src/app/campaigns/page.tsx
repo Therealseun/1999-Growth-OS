@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { campaignsApi } from "@/lib/campaigns.api";
+import { departmentsApi } from "@/lib/departments.api";
+import { useAuth } from "@/lib/auth-provider";
 import { AppShell } from "@/components/layout/app-shell";
 import {
   Button,
@@ -42,7 +44,7 @@ function CampaignRow({ campaign, onStatusChange }: { campaign: Campaign; onStatu
             {campaign.status}
           </Badge>
         </div>
-        {campaign.status !== "COMPLETED" && (
+        {campaign.status !== "ARCHIVED" && (
           <div className="flex items-center gap-1">
             <button
               onClick={(e) => {
@@ -59,7 +61,8 @@ function CampaignRow({ campaign, onStatusChange }: { campaign: Campaign; onStatu
         )}
       </CardHeader>
       <div className="flex flex-wrap gap-3 text-xs text-[var(--color-luxe-muted)]">
-        <span>Target: {campaign.targetAudience}</span>
+        <span>Offer: {campaign.offer}</span>
+        <span>Location: {campaign.location}</span>
         {campaign.prospectCount != null && (
           <span>{campaign.prospectCount} prospects</span>
         )}
@@ -72,9 +75,13 @@ function CampaignRow({ campaign, onStatusChange }: { campaign: Campaign; onStatu
 function CreateModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess?: () => void }) {
   const [name, setName] = useState("");
   const [niche, setNiche] = useState("");
-  const [targetAudience, setTargetAudience] = useState("");
+  const [offer, setOffer] = useState("");
+  const [location, setLocation] = useState("");
   const [objective, setObjective] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const departments = useQuery({ queryKey: ["departments"], queryFn: () => departmentsApi.list(), enabled: open && user?.role === "ADMIN" });
 
   const createMutation = useMutation({
     mutationFn: (payload: Parameters<typeof campaignsApi.create>[0]) => campaignsApi.create(payload),
@@ -89,18 +96,22 @@ function CreateModal({ open, onClose, onSuccess }: { open: boolean; onClose: () 
   const resetForm = () => {
     setName("");
     setNiche("");
-    setTargetAudience("");
+    setOffer("");
+    setLocation("");
     setObjective("");
+    setDepartmentId("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !niche.trim() || !targetAudience.trim()) return;
+    if (!name.trim() || !niche.trim() || !offer.trim() || !location.trim()) return;
     createMutation.mutate({
       name,
       niche,
-      targetAudience,
-      objective: objective || "",
+      offer,
+      location,
+      objective,
+      departmentId: user?.role === "ADMIN" ? departmentId : undefined,
     });
   };
 
@@ -152,23 +163,46 @@ function CreateModal({ open, onClose, onSuccess }: { open: boolean; onClose: () 
               />
             </div>
             <div className="sm:col-span-2">
-              <Label htmlFor="campaign-audience">Target audience</Label>
+              <Label htmlFor="campaign-offer">Offer</Label>
               <Input
-                id="campaign-audience"
-                value={targetAudience}
-                onChange={(e) => setTargetAudience(e.target.value)}
-                placeholder="HR directors at 50–500 employee companies"
+                id="campaign-offer"
+                value={offer}
+                onChange={(e) => setOffer(e.target.value)}
+                placeholder="What is being promoted"
                 required
                 className="mt-1"
               />
             </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="campaign-location">Location</Label>
+              <Input
+                id="campaign-location"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Target location"
+                required
+                className="mt-1"
+              />
+            </div>
+            {user?.role === "ADMIN" && (
+              <div className="sm:col-span-2">
+                <Label htmlFor="campaign-department">Department</Label>
+                <select id="campaign-department" className="luxe-input mt-1 w-full" value={departmentId}
+                  onChange={(e) => setDepartmentId(e.target.value)} required>
+                  <option value="">Select department</option>
+                  {(departments.data?.data ?? []).map((department) => (
+                    <option key={department.id} value={department.id}>{department.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="sm:col-span-2">
               <Label htmlFor="campaign-objective">Objective</Label>
               <textarea
                 id="campaign-objective"
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
-                placeholder="Generate 50 qualified leads within 30 days"
+                placeholder="What should this campaign achieve"
                 rows={3}
                 className="mt-1 w-full rounded-lg border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] px-3 py-2 text-sm text-[var(--color-luxe-text)] placeholder:text-[var(--color-luxe-muted-2)] focus:border-[var(--color-luxe-accent)] focus:outline-none"
               />
@@ -187,7 +221,7 @@ function CreateModal({ open, onClose, onSuccess }: { open: boolean; onClose: () 
             </Button>
             <Button
               type="submit"
-              disabled={createMutation.isPending || !name.trim() || !niche.trim() || !targetAudience.trim()}
+              disabled={createMutation.isPending || !name.trim() || !niche.trim() || !offer.trim() || !location.trim() || (user?.role === "ADMIN" && !departmentId)}
             >
               {createMutation.isPending ? "Creating…" : "Create campaign"}
             </Button>
@@ -212,7 +246,7 @@ export default function CampaignsPage() {
   const campaigns: Campaign[] = (data?.data as Campaign[]) ?? [];
 
   const toggleStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "ACTIVE" | "PAUSED" | "COMPLETED" }) =>
+    mutationFn: ({ id, status }: { id: string; status: "ACTIVE" | "PAUSED" }) =>
       campaignsApi.update(id, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
@@ -239,7 +273,7 @@ export default function CampaignsPage() {
             <option value="DRAFT">Draft</option>
             <option value="ACTIVE">Active</option>
             <option value="PAUSED">Paused</option>
-            <option value="COMPLETED">Completed</option>
+            <option value="ARCHIVED">Archived</option>
           </select>
         </div>
         <div>
@@ -285,9 +319,7 @@ export default function CampaignsPage() {
                   status:
                     campaign.status === "ACTIVE"
                       ? "PAUSED"
-                      : campaign.status === "PAUSED"
-                      ? "ACTIVE"
-                      : "COMPLETED",
+                      : "ACTIVE",
                 })
               }
             />

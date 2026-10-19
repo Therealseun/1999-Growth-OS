@@ -23,16 +23,12 @@ import {
 } from "@/components/ui";
 import {
   Search,
-  Play,
-  CheckCircle,
-  AlertCircle,
   FileText,
   Mail,
   Bookmark,
   Upload,
   X,
   FileCheck,
-  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/lib/types";
@@ -50,27 +46,35 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const STATUS_VARIANT: Record<string, "accent" | "muted" | "success" | "warning" | "danger"> = {
-  PENDING: "muted",
-  IN_PROGRESS: "accent",
-  COMPLETED: "success",
-  BLOCKED: "danger",
+  READY: "muted",
+  REVIEWED: "accent",
+  SENT: "success",
+  PUBLISHED: "success",
+  POSTED: "success",
+  SKIPPED: "danger",
+  INVALID: "danger",
+  EXPIRED: "danger",
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: "Pending",
-  IN_PROGRESS: "In progress",
-  COMPLETED: "Completed",
-  BLOCKED: "Blocked",
+  READY: "Ready",
+  REVIEWED: "Reviewed",
+  SENT: "Sent",
+  PUBLISHED: "Published",
+  POSTED: "Posted",
+  SKIPPED: "Skipped",
+  INVALID: "Invalid",
+  EXPIRED: "Expired",
 };
 
 export default function MyTasksPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [activeTab, setActiveTab] = useState("pending");
+  const [activeTab, setActiveTab] = useState("ready");
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [evidenceType, setEvidenceType] = useState<"LINK" | "SCREENSHOT" | "NOTE">("LINK");
+  const [evidenceType, setEvidenceType] = useState<"LINK" | "NOTE">("LINK");
   const [evidenceTitle, setEvidenceTitle] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
 
@@ -92,14 +96,6 @@ export default function MyTasksPage() {
 
   const tasks: Task[] = data?.data ?? [];
   const total = data?.total ?? 0;
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: Task["status"] }) =>
-      tasksApi.update(id, { status }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["my-tasks"] });
-    },
-  });
 
   const evidenceMutation = useMutation({
     mutationFn: ({
@@ -123,10 +119,10 @@ export default function MyTasksPage() {
   };
 
   const filteredTasks = tasks.filter((t) =>
-    (activeTab === "pending" ? t.status === "PENDING" :
-      activeTab === "in-progress" ? t.status === "IN_PROGRESS" :
-      activeTab === "completed" ? t.status === "COMPLETED" :
-      t.status === "BLOCKED") &&
+    (activeTab === "ready" ? t.status === "READY" :
+      activeTab === "reviewed" ? t.status === "REVIEWED" :
+      activeTab === "completed" ? ["SENT", "PUBLISHED", "POSTED"].includes(t.status) :
+      ["SKIPPED", "INVALID", "EXPIRED"].includes(t.status)) &&
     (!search.trim() ||
       `${t.title} ${t.description ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()))
   );
@@ -151,23 +147,27 @@ export default function MyTasksPage() {
             aria-label="Filter by status"
           >
             <option value="">All status</option>
-            <option value="PENDING">Pending</option>
-            <option value="IN_PROGRESS">In progress</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="BLOCKED">Blocked</option>
+            <option value="READY">Ready</option>
+            <option value="REVIEWED">Reviewed</option>
+            <option value="SENT">Sent</option>
+            <option value="PUBLISHED">Published</option>
+            <option value="POSTED">Posted</option>
+            <option value="SKIPPED">Skipped</option>
+            <option value="INVALID">Invalid</option>
+            <option value="EXPIRED">Expired</option>
           </select>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="pending">Pending</TabsTrigger>
-          <TabsTrigger value="in-progress">In progress</TabsTrigger>
-          <TabsTrigger value="blocked">Blocked</TabsTrigger>
+          <TabsTrigger value="ready">Ready</TabsTrigger>
+          <TabsTrigger value="reviewed">Reviewed</TabsTrigger>
+          <TabsTrigger value="blocked">Skipped/invalid</TabsTrigger>
           <TabsTrigger value="completed">Completed</TabsTrigger>
         </TabsList>
 
-        {["pending", "in-progress", "blocked", "completed"].map((tab) => (
+        {["ready", "reviewed", "blocked", "completed"].map((tab) => (
           <TabsContent key={tab} value={tab}>
             {isLoading ? (
               <div className="space-y-3">
@@ -184,13 +184,13 @@ export default function MyTasksPage() {
             ) : filteredTasks.length === 0 ? (
               <EmptyState
                 title={
-                  tab === "pending" ? "No pending tasks" :
-                  tab === "in-progress" ? "No tasks in progress" :
-                  tab === "blocked" ? "No blocked tasks" :
+                  tab === "ready" ? "No ready tasks" :
+                  tab === "reviewed" ? "No reviewed tasks" :
+                  tab === "blocked" ? "No skipped or invalid tasks" :
                   "No completed tasks"
                 }
                 description={
-                  tab === "pending"
+                  tab === "ready"
                     ? "Tasks assigned to you will appear here."
                     : `No tasks in this category right now.`
                 }
@@ -232,12 +232,6 @@ export default function MyTasksPage() {
                     </CardHeader>
                     <div className="flex items-center justify-between pl-2 pr-3 pb-3">
                       <div className="flex items-center gap-3 text-xs text-[var(--color-luxe-muted)]">
-                        {task.dueDate && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3.5 w-3.5" />
-                            {new Date(task.dueDate).toLocaleDateString()}
-                          </span>
-                        )}
                         {task.completedAt && (
                           <span className="flex items-center gap-1 text-[var(--color-luxe-success)]">
                             <FileCheck className="h-3.5 w-3.5" />
@@ -246,48 +240,10 @@ export default function MyTasksPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-1">
-                        {task.status === "PENDING" && (
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            className="gap-1.5"
-                            onClick={() => updateMutation.mutate({ id: task.id, status: "IN_PROGRESS" })}
-                          >
-                            <Play className="h-3.5 w-3.5" />
-                            Start
-                          </Button>
-                        )}
-                        {task.status === "IN_PROGRESS" && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="gap-1.5"
-                              onClick={() => openEvidence(task.id)}
-                            >
-                              <Upload className="h-3.5 w-3.5" />
-                              Submit evidence
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="gap-1.5"
-                              onClick={() => updateMutation.mutate({ id: task.id, status: "COMPLETED" })}
-                            >
-                              <CheckCircle className="h-3.5 w-3.5" />
-                              Complete
-                            </Button>
-                          </>
-                        )}
-                        {(task.status === "PENDING" || task.status === "IN_PROGRESS") && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-[var(--color-luxe-danger)] gap-1.5 hover:bg-[var(--color-luxe-danger)]/10"
-                            onClick={() => updateMutation.mutate({ id: task.id, status: "BLOCKED" })}
-                          >
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            Block
+                        {(task.status === "READY" || task.status === "REVIEWED") && (
+                          <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => openEvidence(task.id)}>
+                            <Upload className="h-3.5 w-3.5" />
+                            Submit evidence
                           </Button>
                         )}
                       </div>
@@ -313,13 +269,13 @@ export default function MyTasksPage() {
           </button>
         </div>
         <p className="text-sm text-[var(--color-luxe-muted)] mb-4">
-          Provide proof of task completion. This evidence will be recorded by GrowthOS.
+          Record an execution URL or text note. GrowthOS does not send emails or publish content.
         </p>
         <div className="space-y-3">
           <div>
             <Label htmlFor="evidence-type">Evidence type</Label>
             <div className="mt-1 flex gap-2" role="radiogroup" aria-label="Evidence type">
-              {(["LINK", "SCREENSHOT", "NOTE"] as const).map((t) => (
+              {(["LINK", "NOTE"] as const).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -333,22 +289,22 @@ export default function MyTasksPage() {
                       : "border-[var(--color-luxe-border)] text-[var(--color-luxe-muted)] hover:border-[var(--color-luxe-border-strong)]"
                   )}
                 >
-                  {t === "LINK" ? "Link" : t === "SCREENSHOT" ? "Screenshot" : "Note"}
+                  {t === "LINK" ? "URL" : "Text note"}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <Label htmlFor="evidence-title">Title</Label>
+            <Label htmlFor="evidence-title">Text note</Label>
             <Input
               id="evidence-title"
               value={evidenceTitle}
               onChange={(e) => setEvidenceTitle(e.target.value)}
-              placeholder="Short description of evidence"
+              placeholder="Describe the execution evidence"
               className="mt-1"
             />
           </div>
-          <div>
+          {evidenceType === "LINK" && <div>
             <Label htmlFor="evidence-url">URL / link</Label>
             <Input
               id="evidence-url"
@@ -358,7 +314,7 @@ export default function MyTasksPage() {
               placeholder="https://example.com"
               className="mt-1"
             />
-          </div>
+          </div>}
           {evidenceMutation.isError && (
             <p className="text-sm text-[var(--color-luxe-danger)]">
               {evidenceMutation.error instanceof Error
@@ -379,9 +335,8 @@ export default function MyTasksPage() {
                 taskId: selectedTaskId ?? "",
                 payload: {
                   type: evidenceType,
-                  title: evidenceTitle.trim() || evidenceType,
                   url: evidenceUrl.trim() || undefined,
-                  metadata: evidenceType === "NOTE" ? evidenceUrl.trim() || undefined : undefined,
+                  note: evidenceType === "NOTE" ? evidenceTitle.trim() || undefined : undefined,
                 },
               })
             }

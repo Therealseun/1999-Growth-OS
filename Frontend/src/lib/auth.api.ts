@@ -1,5 +1,21 @@
-import { getCurrentProfile, profileToUser } from "./supabase-data";
-import { getSupabaseClient } from "./supabase";
+import { apiClient } from "./api";
+import type { UserRole } from "./types";
+
+type BackendProfile = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  status: "PENDING" | "ACTIVE" | "DISABLED";
+  department_id: string | null;
+};
+
+type BackendAuthResponse = {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  profile: BackendProfile;
+};
 
 export interface LoginRequest {
   email: string;
@@ -25,56 +41,68 @@ export interface RegisterRequest {
 }
 
 export type RegisterResponse = {
-  userId: string;
+  name: string;
   email: string;
-  requiresEmailConfirmation: boolean;
+  role: "EMPLOYEE";
+  status: "PENDING";
+  department_id: null;
+  message: string;
 };
+
+function profileToUser(profile: BackendProfile) {
+  return {
+    id: profile.id,
+    email: profile.email,
+    name: profile.name,
+    role: profile.role,
+    avatarUrl: null,
+  };
+}
+
+function establishSession(session: BackendAuthResponse): void {
+  apiClient.setTokens(session.access_token, session.refresh_token);
+}
 
 export const authApi = {
   async login(payload: LoginRequest): Promise<LoginResponse> {
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const session = await apiClient.post<BackendAuthResponse>("/auth/login", {
       email: payload.email.trim(),
       password: payload.password,
     });
-    if (error) throw error;
-    if (!data.session) throw new Error("Sign-in did not return an active session.");
-
-    try {
-      const profile = await getCurrentProfile();
-      return {
-        user: profileToUser(profile),
-        token: data.session.access_token,
-        expiresIn: data.session.expires_in ?? 0,
-      };
-    } catch (profileError) {
-      await supabase.auth.signOut();
-      throw profileError;
-    }
-  },
-
-  async logout() {
-    const { error } = await getSupabaseClient().auth.signOut();
-    if (error) throw error;
-  },
-
-  async register(payload: RegisterRequest): Promise<RegisterResponse> {
-    const { data, error } = await getSupabaseClient().auth.signUp({
-      email: payload.email.trim(),
-      password: payload.password,
-      options: { data: { full_name: payload.name.trim() } },
-    });
-    if (error) throw error;
-    if (!data.user) throw new Error("Supabase did not return the created user.");
-
+    establishSession(session);
     return {
-      userId: data.user.id,
-      email: data.user.email ?? payload.email.trim(),
-      requiresEmailConfirmation: data.session === null,
+      user: profileToUser(session.profile),
+      token: session.access_token,
+      expiresIn: session.expires_in,
     };
   },
 
+  async logout() {
+    apiClient.clearTokens();
+  },
+
+  async register(payload: RegisterRequest): Promise<RegisterResponse> {
+    return apiClient.post<RegisterResponse>("/auth/signup", {
+      name: payload.name.trim(),
+      email: payload.email.trim(),
+      password: payload.password,
+    });
+  },
+
   async getCurrentUser() {
-    return { user: profileToUser(await getCurrentProfile()) };
+    try {
+      const profile = await apiClient.get<BackendProfile>("/auth/me");
+      return { user: profileToUser(profile) };
+    } catch (error) {
+      if (error instanceof Error && "status" in error) {
+        const status = (error as Error & { status: number }).status;
+        if (status === 401 || status === 403) apiClient.clearTokens();
+      }
+      throw error;
+    }
+  },
+
+  clearSession() {
+    apiClient.clearTokens();
   },
 };

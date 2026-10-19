@@ -1,251 +1,190 @@
-import { getSupabaseClient } from "./supabase";
-import {
-  mapEmailDraft,
-  mapEmailTemplate,
-  mapLeadMagnet,
-  throwSupabaseError,
-} from "./supabase-data";
+import { apiClient } from "./api";
 import type { EmailDraft, EmailTemplate, LeadMagnet } from "./types";
+
+function queryString(query?: Record<string, string | number | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  return params.size ? `?${params}` : "";
+}
 
 export const workspaceApi = {
   async getEmailTemplates() {
-    const { data, error } = await getSupabaseClient()
-      .from("email_templates")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throwSupabaseError(error);
-    return { data: (data ?? []).map((row) => mapEmailTemplate(row) as EmailTemplate) };
+    const result = await apiClient.get<{ data: Array<Record<string, unknown>> }>("/workspace/email/templates");
+    return { data: result.data.map((row) => ({
+      id: String(row.id), name: String(row.name), subject: String(row.subject), body: String(row.body),
+      type: String(row.type), createdAt: String(row.created_at), createdBy: String(row.created_by),
+    })) as EmailTemplate[] };
   },
 
   async createEmailTemplate(payload: { name: string; subject: string; body: string; type: string }) {
-    const { data, error } = await getSupabaseClient()
-      .from("email_templates")
-      .insert(payload)
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapEmailTemplate(data) as EmailTemplate };
+    const result = await apiClient.post<{ data: Record<string, unknown> }>("/workspace/email/templates", payload);
+    const row = result.data;
+    return { data: {
+      id: String(row.id), name: String(row.name), subject: String(row.subject), body: String(row.body),
+      type: String(row.type), createdAt: String(row.created_at), createdBy: String(row.created_by),
+    } as EmailTemplate };
   },
 
   async getEmailDrafts() {
-    const { data, error } = await getSupabaseClient()
-      .from("email_drafts")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throwSupabaseError(error);
-    return { data: (data ?? []).map((row) => mapEmailDraft(row) as EmailDraft) };
+    const result = await apiClient.get<{ data: Array<Record<string, unknown>> }>("/workspace/email/drafts");
+    return { data: result.data.map(mapDraft) };
   },
 
   async getEmailDraft(id: string) {
-    const { data, error } = await getSupabaseClient()
-      .from("email_drafts")
-      .select("*")
-      .eq("id", id)
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapEmailDraft(data) as EmailDraft };
+    const result = await apiClient.get<{ data: Record<string, unknown> }>(`/workspace/email/drafts/${id}`);
+    return { data: mapDraft(result.data) };
   },
 
   async createEmailDraft(payload: {
-    subject: string;
-    body: string;
-    campaignId?: string;
-    prospectIds?: string[];
+    subject: string; body: string; campaignId?: string; prospectIds?: string[];
   }) {
-    const { data, error } = await getSupabaseClient()
-      .from("email_drafts")
-      .insert({
-        subject: payload.subject,
-        body: payload.body,
-        campaign_id: payload.campaignId ?? null,
-        prospect_ids: payload.prospectIds ?? [],
-      })
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapEmailDraft(data) as EmailDraft };
+    const result = await apiClient.post<{ data: Record<string, unknown> }>("/workspace/email/drafts", payload);
+    return { data: mapDraft(result.data) };
   },
 
   async sendEmailDraft(id: string) {
-    const sentAt = new Date().toISOString();
-    const { data, error } = await getSupabaseClient()
-      .from("email_drafts")
-      .update({ status: "SENT", sent_at: sentAt })
-      .eq("id", id)
-      .select("sent_at")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: { sent: true, sentAt: String(data.sent_at) } };
+    return apiClient.post<{ data: { sent: boolean; sentAt: string } }>(
+      `/workspace/email/drafts/${id}/sent`,
+      { confirmedSentExternally: true }
+    );
   },
 
   async getEmailStats(campaignId?: string) {
-    let query = getSupabaseClient().from("email_drafts").select("status,campaign_id,created_at,sent_at");
-    if (campaignId) query = query.eq("campaign_id", campaignId);
-    const { data, error } = await query;
-    if (error) throwSupabaseError(error);
+    const { data } = await this.getEmailDrafts();
+    const drafts = data.filter((draft) => !campaignId || draft.campaignId === campaignId);
     return {
       data: {
-        drafts: data?.filter((row) => row.status === "DRAFT").length ?? 0,
-        sent: data?.filter((row) => row.status === "SENT").length ?? 0,
+        drafts: drafts.filter((draft) => draft.status === "DRAFT").length,
+        sent: drafts.filter((draft) => draft.status === "SENT").length,
       },
     };
   },
 
   async getSeoAudits(campaignId?: string) {
-    let query = getSupabaseClient().from("seo_audits").select("*").order("created_at", { ascending: false });
-    if (campaignId) query = query.eq("campaign_id", campaignId);
-    const { data, error } = await query;
-    if (error) throwSupabaseError(error);
-    return {
-      data: (data ?? []).map((row) => ({
+    return apiClient.get<{ data: Array<{
+      id: string;
+      campaign_id: string;
+      overall_score: number | null;
+      categories: Record<string, unknown>;
+      recommendations: unknown[];
+      errors: unknown[];
+      created_at: string;
+    }> }>(`/workspace/seo/audits${queryString({ campaignId })}`).then(({ data }) => ({
+      data: data.map((row) => ({
         id: row.id,
         campaignId: row.campaign_id,
         overallScore: row.overall_score == null ? null : Number(row.overall_score),
-        categories: row.categories ?? {},
-        recommendations: row.recommendations ?? [],
-        errors: row.errors ?? [],
+        categories: row.categories,
+        recommendations: row.recommendations,
+        errors: row.errors,
         createdAt: row.created_at,
       })),
-    };
+    }));
   },
 
-  async createSeoAudit(campaignId: string) {
-    const { data, error } = await getSupabaseClient()
-      .from("seo_audits")
-      .insert({ campaign_id: campaignId })
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return {
-      data: {
-        id: data.id,
-        campaignId: data.campaign_id,
-        overallScore: null,
-        categories: data.categories ?? {},
-        recommendations: data.recommendations ?? [],
-        errors: data.errors ?? [],
-        createdAt: data.created_at,
-      },
-    };
+  async createSeoAudit(_campaignId: string) {
+    throw new Error("GrowthOS has no SEO scanner. An audit can only be saved after an external scanner provides its real results.");
+  },
+
+  async saveSeoAudit(payload: {
+    campaignId: string;
+    overallScore?: number | null;
+    categories?: Record<string, unknown>;
+    recommendations?: unknown[];
+    errors?: unknown[];
+  }) {
+    return apiClient.post("/workspace/seo/audits", payload);
   },
 
   async getKeywordResearch(campaignId: string) {
-    const { data, error } = await getSupabaseClient()
-      .from("campaign_niche_intelligence")
-      .select("insights,opportunities,risks,competitors")
-      .eq("campaign_id", campaignId)
-      .maybeSingle();
-    if (error) throwSupabaseError(error);
-    const opportunities = Array.isArray(data?.opportunities) ? data.opportunities : [];
-    const keywords = opportunities.flatMap((opportunity) => {
+    const { data } = await apiClient.get<{
+      data: { niche: string; opportunities: unknown[] };
+    }>(`/campaigns/${campaignId}/niche-profile`);
+    const keywords = data.opportunities.flatMap((opportunity) => {
       if (typeof opportunity === "string") {
         return [{ keyword: opportunity, volume: "—", difficulty: "—", intent: "—" }];
       }
-      if (opportunity && typeof opportunity === "object" && "keyword" in opportunity) {
-        const row = opportunity as Record<string, unknown>;
-        return [{
-          keyword: String(row.keyword),
-          volume: String(row.volume ?? "—"),
-          difficulty: String(row.difficulty ?? "—"),
-          intent: String(row.intent ?? "—"),
-        }];
-      }
-      return [];
+      if (!opportunity || typeof opportunity !== "object" || !("keyword" in opportunity)) return [];
+      const item = opportunity as Record<string, unknown>;
+      return [{
+        keyword: String(item.keyword),
+        volume: String(item.volume ?? "—"),
+        difficulty: String(item.difficulty ?? "—"),
+        intent: String(item.intent ?? "—"),
+      }];
     });
     return { data: { keywords } };
   },
 
   async getSeoRecommendations(campaignId: string) {
-    const [{ data: audits, error: auditsError }, { data: intelligence, error }] = await Promise.all([
-      getSupabaseClient()
-        .from("seo_audits")
-        .select("recommendations,errors")
-        .eq("campaign_id", campaignId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      getSupabaseClient()
-        .from("campaign_niche_intelligence")
-        .select("opportunities,risks")
-        .eq("campaign_id", campaignId)
-        .maybeSingle(),
+    const [{ data: audits }, { data: intelligence }] = await Promise.all([
+      this.getSeoAudits(campaignId),
+      apiClient.get<{ data: { opportunities: unknown[]; risks: unknown[] } }>(
+        `/campaigns/${campaignId}/niche-profile`
+      ),
     ]);
-    if (auditsError) throwSupabaseError(auditsError);
-    if (error) throwSupabaseError(error);
-    const recommendations = Array.isArray(audits?.recommendations) ? audits.recommendations : [];
-    const errors = Array.isArray(audits?.errors) ? audits.errors : [];
+    const latest = audits[0];
     return {
       data: {
-        recommendations: recommendations.length
-          ? recommendations
-          : (intelligence?.opportunities as string[] | undefined) ?? [],
-        errors: errors.length ? errors : (intelligence?.risks as unknown[] | undefined) ?? [],
+        recommendations: latest?.recommendations?.length ? latest.recommendations : intelligence.opportunities,
+        errors: latest?.errors?.length ? latest.errors : intelligence.risks,
       },
     };
   },
 
   async getLeadMagnets(campaignId?: string) {
-    let query = getSupabaseClient().from("lead_magnets").select("*").order("created_at", { ascending: false });
-    if (campaignId) query = query.eq("campaign_id", campaignId);
-    const { data, error } = await query;
-    if (error) throwSupabaseError(error);
-    return { data: (data ?? []).map((row) => mapLeadMagnet(row) as LeadMagnet) };
+    const result = await apiClient.get<{ data: Array<Record<string, unknown>> }>(`/workspace/lead-magnets${queryString({ campaignId })}`);
+    return { data: result.data.map(mapLeadMagnet) };
   },
 
   async createLeadMagnet(payload: {
-    name: string;
-    type: string;
-    description: string;
-    campaignId?: string;
-    content?: string;
+    name: string; type: string; description: string; campaignId?: string; content?: string;
   }) {
-    const { data, error } = await getSupabaseClient()
-      .from("lead_magnets")
-      .insert({
-        name: payload.name,
-        type: payload.type,
-        description: payload.description,
-        campaign_id: payload.campaignId ?? null,
-        content: payload.content ?? null,
-      })
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapLeadMagnet(data) as LeadMagnet };
+    const result = await apiClient.post<{ data: Record<string, unknown> }>("/workspace/lead-magnets", payload);
+    return { data: mapLeadMagnet(result.data) };
   },
 
   async getLeadMagnet(id: string) {
-    const { data, error } = await getSupabaseClient().from("lead_magnets").select("*").eq("id", id).single();
-    if (error) throwSupabaseError(error);
-    return { data: mapLeadMagnet(data) as LeadMagnet };
+    const result = await apiClient.get<{ data: Record<string, unknown> }>(`/workspace/lead-magnets/${id}`);
+    return { data: mapLeadMagnet(result.data) };
   },
 
   async updateLeadMagnet(id: string, payload: Record<string, unknown>) {
-    const patch: Record<string, unknown> = {};
-    if (typeof payload.name === "string") patch.name = payload.name;
-    if (typeof payload.type === "string") patch.type = payload.type;
-    if (typeof payload.description === "string") patch.description = payload.description;
-    if (typeof payload.content === "string" || payload.content === null) patch.content = payload.content;
-    if (typeof payload.status === "string") patch.status = payload.status;
-    if (typeof payload.downloadCount === "number") patch.download_count = payload.downloadCount;
-    if (typeof payload.conversionRate === "number") patch.conversion_rate = payload.conversionRate;
-    const { data, error } = await getSupabaseClient()
-      .from("lead_magnets")
-      .update(patch)
-      .eq("id", id)
-      .select("*")
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: mapLeadMagnet(data) as LeadMagnet };
+    const result = await apiClient.patch<{ data: Record<string, unknown> }>(`/workspace/lead-magnets/${id}`, payload);
+    return { data: mapLeadMagnet(result.data) };
   },
 
-  async getLeadMagnetPerformance(id: string) {
-    const { data, error } = await getSupabaseClient()
-      .from("lead_magnets")
-      .select("download_count,conversion_rate")
-      .eq("id", id)
-      .single();
-    if (error) throwSupabaseError(error);
-    return { data: { downloadCount: Number(data.download_count), conversionRate: Number(data.conversion_rate) } };
+  async getLeadMagnetPerformance(_id: string) {
+    throw new Error("Downloads and conversion events are not recorded in the current GrowthOS domain model.");
   },
 };
+
+function mapDraft(row: Record<string, unknown>): EmailDraft {
+  return {
+    id: String(row.id),
+    subject: String(row.subject),
+    body: String(row.body),
+    status: String(row.status) as EmailDraft["status"],
+    campaignId: row.campaign_id == null ? null : String(row.campaign_id),
+    prospectIds: Array.isArray(row.prospect_ids) ? row.prospect_ids.map(String) : [],
+    sentAt: row.sent_at == null ? null : String(row.sent_at),
+    createdAt: String(row.created_at),
+    createdBy: String(row.created_by),
+  };
+}
+
+function mapLeadMagnet(row: Record<string, unknown>): LeadMagnet {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    type: String(row.type),
+    description: String(row.description ?? ""),
+    content: row.content == null ? null : String(row.content),
+    status: String(row.status),
+    campaignId: row.campaign_id == null ? null : String(row.campaign_id),
+    createdAt: String(row.created_at),
+    createdBy: String(row.created_by),
+  };
+}

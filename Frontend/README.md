@@ -1,12 +1,14 @@
-# 1999 GrowthOS
+# GrowthOS frontend
 
 GrowthOS coordinates AI-prepared work, human execution, evidence, and reporting.
-Sift remains the prospecting and research layer; GrowthOS does not send email or
-post to social networks on an employee's behalf.
+The backend is the single source of truth for authentication, application data,
+and the database schema. The frontend calls it through `/api`; it does not
+connect to Supabase directly.
 
 ## Run locally
 
-From `growthos-frontend`:
+Start the backend first by following [`../backend/README.md`](../backend/README.md).
+Then, from this directory:
 
 ```bash
 npm ci
@@ -21,45 +23,34 @@ npm run lint
 npm run build
 ```
 
-## Supabase setup
+## Backend and database setup
 
-The typed service modules in `src/lib` use Supabase Auth and the Supabase
-Data API. Configure these values in the ignored `.env` file, then restart the
-Next.js server:
+In the frontend's ignored `.env.local`, configure the backend origin:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+API_URL=http://localhost:4000
 ```
 
-The publishable key is intended for browser use with RLS enabled. Never put a
-service-role key in a `NEXT_PUBLIC_*` variable or any browser bundle.
+Next.js proxies `/api/*` to that backend. `NEXT_PUBLIC_API_BASE_URL` is an
+optional direct-browser override and must include the `/api` path (for example,
+`https://api.example.com/api`). When using that override, configure the backend
+`CORS_ORIGINS` to allow the frontend origin.
 
-Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase Dashboard SQL
-Editor. It creates the GrowthOS tables, profile trigger, RLS policies, and safe
-task-update, deactivation, and profile-update functions. If an earlier version of the schema was
-already applied, rerun the current script; its table creation and policy
-replacement are idempotent and it adds the functions used by this frontend.
-Sign up with the account that should be the first administrator, then run the
-example profile-promotion statement at the end of the SQL file.
+The backend requires its own environment variables as documented in its
+README. Apply the database migrations, in order, from the Supabase Dashboard
+SQL Editor:
 
-New self-signups receive the `EMPLOYEE` role. Supabase email confirmation
-settings control whether sign-up immediately creates a session or displays a
-confirmation prompt. Set the Supabase Auth Site URL and redirect allow-list to
-the deployed app URL.
+1. [`../backend/supabase/migrations/0001_init.sql`](../backend/supabase/migrations/0001_init.sql)
+2. [`../backend/supabase/migrations/0002_frontend_feature_data.sql`](../backend/supabase/migrations/0002_frontend_feature_data.sql)
 
-The Employees invitation action uses the `invite-employee` Supabase Edge
-Function. Deploy it with the Supabase CLI after linking this project:
+These backend migrations define the canonical schema. Do **not** apply the
+deprecated `supabase/schema.sql` in this frontend; it describes an older,
+incompatible data model.
 
-```bash
-supabase functions deploy invite-employee
-```
-
-The function verifies the caller is an active admin before using the
-server-only Supabase service-role key to send an invitation. Do not copy that
-key into `.env`, Next.js, or the frontend. The former local `/api` and JSON
-store code remains for development compatibility; current application data
-services use Supabase directly.
+New sign-ups create `EMPLOYEE` accounts in `PENDING` status and cannot sign in
+until an administrator approves them. Follow the backend README's first-admin
+instructions to promote the initial administrator. No Supabase credentials or
+Edge Function deployment are required in the frontend.
 
 ## Product boundaries
 
@@ -67,5 +58,8 @@ services use Supabase directly.
   their approved email tool and then record that action in GrowthOS.
 - Workload targets are loaded from backend configuration. Historical snapshots
   retain the target values captured at the time.
-- No autonomous email sending, social posting, full CRM, or unrestricted access
-  to employee accounts is included.
+- Real SEO scanning and lead-magnet download/conversion tracking are not
+  provided by the current backend; those operations remain unavailable rather
+  than reporting simulated success.
+- No autonomous email sending, social posting, full CRM, or unrestricted
+  access to employee accounts is included.

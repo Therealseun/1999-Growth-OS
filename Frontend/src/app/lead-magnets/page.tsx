@@ -22,7 +22,7 @@ import {
   Skeleton,
   Modal,
 } from "@/components/ui";
-import { Bookmark, Plus, FileText, TrendingUp } from "lucide-react";
+import { Bookmark, Plus, FileText } from "lucide-react";
 import type { LeadMagnet } from "@/lib/types";
 
 function MagnetRow({ magnet, onView }: { magnet: LeadMagnet; onView: (magnet: LeadMagnet) => void }) {
@@ -41,11 +41,7 @@ function MagnetRow({ magnet, onView }: { magnet: LeadMagnet; onView: (magnet: Le
           </div>
         </div>
       </CardHeader>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--color-luxe-muted)]">
-        <div className="flex items-center gap-3">
-          <span>Downloads: {m.downloadCount ?? 0}</span>
-          <span>Conversion: {m.conversionRate != null ? `${m.conversionRate.toFixed(1)}%` : "—"}</span>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-[var(--color-luxe-muted)]">
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -82,13 +78,14 @@ export default function LeadMagnetsPage() {
   const magnets = magnetsData?.data ?? [];
 
   const createMutation = useMutation({
-    mutationFn: (payload: { name: string; type: string; description: string; campaignId?: string }) =>
+    mutationFn: (payload: { name: string; type: string; description: string; campaignId?: string; content?: string }) =>
       workspaceApi.createLeadMagnet(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lead-magnets"] });
       setName("");
       setType("pdf");
       setDescription("");
+      setContent("");
       setActiveTab("library");
     },
   });
@@ -96,6 +93,7 @@ export default function LeadMagnetsPage() {
   const [name, setName] = useState("");
   const [type, setType] = useState("pdf");
   const [description, setDescription] = useState("");
+  const [content, setContent] = useState("");
 
   return (
     <div>
@@ -125,7 +123,6 @@ export default function LeadMagnetsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="library">Library</TabsTrigger>
-          <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="create">Create</TabsTrigger>
         </TabsList>
 
@@ -161,67 +158,6 @@ export default function LeadMagnetsPage() {
               ))}
             </div>
           )}
-        </TabsContent>
-
-        <TabsContent value="performance">
-          <Card>
-            <CardHeader>
-              <CardTitle>Lead magnet performance</CardTitle>
-            </CardHeader>
-            {magnetsLoading ? (
-              <Skeleton className="h-48 w-full rounded-xl" />
-            ) : magnetsError ? (
-              <ErrorState
-                title="Failed to load performance"
-                description={magnetsError instanceof Error ? magnetsError.message : undefined}
-                onRetry={() => queryClient.invalidateQueries({ queryKey: ["lead-magnets"] })}
-              />
-            ) : magnets.length === 0 ? (
-              <EmptyState
-                title="No performance data yet"
-                description="Performance metrics will appear once lead magnets are downloaded and tracked."
-                icon={<TrendingUp className="h-6 w-6 text-[var(--color-luxe-muted-2)]" />}
-              />
-            ) : (
-              <div className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <h4 className="text-sm font-medium text-[var(--color-luxe-muted)] mb-2">Downloads</h4>
-                    <div className="h-24 rounded-xl border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] flex items-center justify-center">
-                      <span className="text-3xl font-semibold text-[var(--color-luxe-text)]">
-                        {magnets.reduce((acc: number, m: unknown) => acc + ((m as { downloadCount?: number }).downloadCount ?? 0), 0)}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-[var(--color-luxe-muted)] mb-2">Average conversion</h4>
-                    <div className="h-24 rounded-xl border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] flex items-center justify-center">
-                      <span className="text-3xl font-semibold text-[var(--color-luxe-text)]">
-                        {magnets.length > 0
-                          ? `${(magnets.reduce((acc: number, m: unknown) => acc + ((m as { conversionRate?: number }).conversionRate ?? 0), 0) / magnets.length).toFixed(1)}%`
-                          : "—"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-2">                {magnets.map((magnet: unknown, i) => {
-                    const m = magnet as { name?: string; downloadCount?: number; conversionRate?: number };
-                    return (
-                    <div key={i}
-                        className="flex items-center justify-between rounded-xl border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] px-4 py-2"
-                      >
-                        <span className="text-sm text-[var(--color-luxe-text)]">{String(m.name ?? "")}</span>
-                        <div className="flex items-center gap-4 text-sm text-[var(--color-luxe-muted)]">
-                          <span>Downloads: {m.downloadCount ?? 0}</span>
-                          <span>Conv: {m.conversionRate != null ? `${m.conversionRate.toFixed(1)}%` : "—"}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </Card>
         </TabsContent>
 
         <TabsContent value="create">
@@ -266,6 +202,17 @@ export default function LeadMagnetsPage() {
                     className="mt-1 w-full rounded-lg border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] px-3 py-2 text-sm text-[var(--color-luxe-text)] placeholder:text-[var(--color-luxe-muted-2)] focus:border-[var(--color-luxe-accent)] focus:outline-none resize-y"
                   />
                 </div>
+                <div className="sm:col-span-2">
+                  <Label htmlFor="lm-content">Content</Label>
+                  <textarea
+                    id="lm-content"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder="Draft the lead magnet content"
+                    rows={8}
+                    className="mt-1 w-full rounded-lg border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] px-3 py-2 text-sm text-[var(--color-luxe-text)] focus:border-[var(--color-luxe-accent)] focus:outline-none resize-y"
+                  />
+                </div>
               </div>
               <div className="flex justify-end gap-3">
                 <Button variant="secondary" onClick={() => setActiveTab("library")}>
@@ -277,6 +224,7 @@ export default function LeadMagnetsPage() {
                     type,
                     description: description.trim(),
                     campaignId: campaignId || undefined,
+                    content: content || undefined,
                   })}
                   disabled={createMutation.isPending || !name.trim() || !description.trim()}
                 >
@@ -303,16 +251,9 @@ export default function LeadMagnetsPage() {
               </div>
               <Badge variant="accent">{selectedMagnet.type}</Badge>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] p-4">
-                <p className="text-xs text-[var(--color-luxe-muted)]">Downloads</p>
-                <p className="mt-1 text-xl font-semibold text-[var(--color-luxe-text)]">{selectedMagnet.downloadCount}</p>
-              </div>
-              <div className="rounded-xl border border-[var(--color-luxe-border)] bg-[var(--color-luxe-bg)] p-4">
-                <p className="text-xs text-[var(--color-luxe-muted)]">Conversion</p>
-                <p className="mt-1 text-xl font-semibold text-[var(--color-luxe-text)]">{selectedMagnet.conversionRate.toFixed(1)}%</p>
-              </div>
-            </div>
+            <p className="mt-3 whitespace-pre-wrap text-sm text-[var(--color-luxe-text)]">
+              {selectedMagnet.content || "No content has been added yet."}
+            </p>
             <div className="mt-5 flex justify-end">
               <Button variant="secondary" onClick={() => setSelectedMagnet(null)}>Close</Button>
             </div>

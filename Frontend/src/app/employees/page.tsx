@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { employeesApi } from "@/lib/employees.api";
+import { departmentsApi } from "@/lib/departments.api";
 import {
   Button,
   Input,
@@ -24,7 +25,7 @@ import {
   Skeleton,
   Modal,
 } from "@/components/ui";
-import { Plus, User, MoreHorizontal, Mail, Shield, Trash2, X } from "lucide-react";
+import { Plus, User, MoreHorizontal, Shield, Trash2, X } from "lucide-react";
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: "Admin",
@@ -41,8 +42,23 @@ const ROLE_VARIANT: Record<string, "accent" | "muted" | "success"> = {
 export default function EmployeesPage() {
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
-  const [invite, setInvite] = useState({ name: "", email: "", role: "EMPLOYEE" });
+  const [departmentName, setDepartmentName] = useState("");
+  const [invite, setInvite] = useState({ name: "", email: "", role: "EMPLOYEE", departmentId: "" });
   const queryClient = useQueryClient();
+
+  const { data: departmentData } = useQuery({
+    queryKey: ["departments"],
+    queryFn: () => departmentsApi.list(),
+  });
+  const departments = departmentData?.data ?? [];
+
+  const departmentMutation = useMutation({
+    mutationFn: () => departmentsApi.create(departmentName.trim()),
+    onSuccess: async () => {
+      setDepartmentName("");
+      await queryClient.invalidateQueries({ queryKey: ["departments"] });
+    },
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["employees", { search }],
@@ -58,22 +74,60 @@ export default function EmployeesPage() {
     },
   });
 
+  const approveMutation = useMutation({
+    mutationFn: (id: string) => employeesApi.update(id, { status: "ACTIVE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
+    },
+  });
+
   const inviteMutation = useMutation({
     mutationFn: () =>
       employeesApi.create({
         name: invite.name.trim(),
         email: invite.email.trim(),
         role: invite.role as "ADMIN" | "MANAGER" | "EMPLOYEE",
+        departmentId: invite.departmentId || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["employees"] });
-      setInvite({ name: "", email: "", role: "EMPLOYEE" });
+      setInvite({ name: "", email: "", role: "EMPLOYEE", departmentId: "" });
       setAddOpen(false);
     },
   });
 
   return (
     <div>
+      <Card className="mb-5 p-4 sm:p-5">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-52 flex-1">
+            <Label htmlFor="department-name">Department</Label>
+            <Input
+              id="department-name"
+              value={departmentName}
+              onChange={(e) => setDepartmentName(e.target.value)}
+              placeholder="e.g. Growth"
+              className="mt-1"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!departmentName.trim() || departmentMutation.isPending}
+            onClick={() => departmentMutation.mutate()}
+          >
+            {departmentMutation.isPending ? "Adding…" : "Add department"}
+          </Button>
+          <div className="w-full text-sm text-[var(--color-luxe-muted)]">
+            {departments.length ? departments.map((department) => department.name).join(" · ") : "No departments created"}
+          </div>
+          {departmentMutation.isError && (
+            <p className="w-full text-sm text-[var(--color-luxe-danger)]">
+              {departmentMutation.error instanceof Error ? departmentMutation.error.message : "Failed to add department."}
+            </p>
+          )}
+        </div>
+      </Card>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-1 flex-wrap items-center gap-3">
           <SearchInput
@@ -117,6 +171,8 @@ export default function EmployeesPage() {
               name?: string;
               email?: string;
               role?: string;
+              status?: string;
+              departmentName?: string | null;
               avatarUrl?: string | null;
             };
             return (
@@ -147,23 +203,23 @@ export default function EmployeesPage() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
-                        <Mail className="mr-2 h-4 w-4" />
-                        Send invitation
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Shield className="mr-2 h-4 w-4" />
-                        Edit role
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-[var(--color-luxe-danger)]"
-                        onClick={() => {
-                          if (e.id) deactivateMutation.mutate(e.id);
-                        }}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Deactivate employee
-                      </DropdownMenuItem>
+                      {e.status === "PENDING" && (
+                        <DropdownMenuItem
+                          onClick={() => e.id && approveMutation.mutate(e.id)}
+                        >
+                          <Shield className="mr-2 h-4 w-4" />
+                          Approve employee
+                        </DropdownMenuItem>
+                      )}
+                      {e.status === "ACTIVE" && (
+                        <DropdownMenuItem
+                          className="text-[var(--color-luxe-danger)]"
+                          onClick={() => e.id && deactivateMutation.mutate(e.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Deactivate employee
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </CardHeader>
@@ -171,7 +227,13 @@ export default function EmployeesPage() {
                   <Badge variant={ROLE_VARIANT[e.role ?? ""] ?? "muted"}>
                     {ROLE_LABEL[e.role ?? ""] ?? e.role}
                   </Badge>
+                  <Badge variant={e.status === "ACTIVE" ? "success" : "muted"}>
+                    {e.status ?? "Unknown"}
+                  </Badge>
                 </div>
+                {e.departmentName && (
+                  <p className="mt-3 text-sm text-[var(--color-luxe-muted)]">{e.departmentName}</p>
+                )}
               </Card>
             );
           })}
@@ -230,8 +292,22 @@ export default function EmployeesPage() {
               <option value="MANAGER">Manager</option>
             </select>
           </div>
+          <div>
+            <Label htmlFor="emp-department">Department</Label>
+            <select
+              id="emp-department"
+              value={invite.departmentId}
+              onChange={(e) => setInvite((i) => ({ ...i, departmentId: e.target.value }))}
+              className="luxe-input mt-1 w-full"
+            >
+              <option value="">No department</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>{department.name}</option>
+              ))}
+            </select>
+          </div>
           <p className="text-xs text-[var(--color-luxe-muted-2)]">
-            Supabase will email an invitation link. The invited teammate sets their own password.
+            An invitation email is sent. New accounts remain pending until an administrator approves them.
           </p>
           {inviteMutation.isError && (
             <p className="text-sm text-[var(--color-luxe-danger)]">

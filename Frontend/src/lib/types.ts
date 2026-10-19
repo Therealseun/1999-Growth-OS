@@ -11,13 +11,16 @@ export type AuthUser = {
 export type Campaign = {
   id: string;
   name: string;
-  status: "DRAFT" | "ACTIVE" | "PAUSED" | "COMPLETED";
+  status: "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
   niche: string;
-  targetAudience: string;
+  offer: string;
+  location: string;
   objective: string;
   createdAt: string;
   updatedAt: string;
   ownerId: string;
+  departmentId: string;
+  departmentName?: string;
   prospectCount?: number | null;
   taskCount?: number | null;
 };
@@ -26,14 +29,16 @@ export type Prospect = {
   id: string;
   firstName: string;
   lastName: string;
-  email: string;
+  email: string | null;
   company?: string | null;
   role?: string | null;
   source?: string | null;
   campaignId?: string | null;
-  status: "SEED" | "CONTACTED" | "QUALIFIED" | "CONVERTED";
+  status: "QUALIFIED" | "REJECTED" | "NEEDS_REVIEW";
   notes?: string | null;
   createdAt: string;
+  website?: string | null;
+  location?: string | null;
 };
 
 export type Task = {
@@ -41,7 +46,7 @@ export type Task = {
   type: "EMAIL" | "SEO" | "LEAD_MAGNET";
   title: string;
   description?: string | null;
-  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "BLOCKED";
+  status: "READY" | "REVIEWED" | "SENT" | "PUBLISHED" | "POSTED" | "SKIPPED" | "INVALID" | "EXPIRED";
   assignedTo: string;
   /** Display name resolved server-side from assignedTo (falls back to the id). */
   assignedToName?: string;
@@ -57,10 +62,10 @@ export type Task = {
 export type Evidence = {
   id: string;
   taskId: string;
-  type: "LINK" | "SCREENSHOT" | "NOTE" | "FILE";
-  title: string;
-  url?: string | null;
-  metadata?: string | null;
+  workstream: "EMAIL" | "SEO" | "LEAD_MAGNET";
+  type: "URL" | "TEXT" | "FILE";
+  evidenceValue?: string | null;
+  storagePath?: string | null;
   submittedAt: string;
   submittedBy: string;
 };
@@ -95,44 +100,52 @@ export type LeadMagnet = {
   content?: string | null;
   status: string;
   campaignId: string | null;
-  downloadCount: number;
-  conversionRate: number;
+  createdBy: string;
   createdAt: string;
 };
 
 export type WorkloadTarget = {
   id: string;
-  role: UserRole;
-  dailyTaskTarget: number;
-  weeklyTaskTarget: number;
-  activeCampaignsTarget?: number | null;
+  campaignId: string | null;
+  campaignName?: string | null;
+  emailDailyTarget: number;
+  seoDailyTarget: number;
+  leadMagnetDailyTarget: number;
+  workdaysPerMonth: number;
+  effectiveFrom: string;
   updatedAt: string;
   updatedBy?: string | null;
 };
 
 export type WorkloadSnapshot = {
   id: string;
+  campaignId: string;
+  campaignName: string;
   userId: string;
-  period: "TODAY" | "THIS_WEEK" | "THIS_MONTH";
-  tasksCompleted: number;
-  tasksAssigned: number;
-  targetSnapshot: {
-    dailyTaskTarget: number;
-    weeklyTaskTarget: number;
-    activeCampaignsTarget: number | null;
-  };
-  capturedAt: string;
+  employeeName: string;
+  workDate: string;
+  emailTarget: number;
+  seoTarget: number;
+  leadMagnetTarget: number;
+  emailCompleted: number;
+  seoCompleted: number;
+  leadMagnetCompleted: number;
+  totalCompleted: number;
+  completionPct: number | null;
+  generatedAt: string;
 };
 
 export type CampaignMetrics = {
   prospectCount: number;
   contactedCount: number;
   qualifiedCount: number;
-  convertedCount: number;
+  convertedCount: number | null;
   tasksCompleted: number;
   tasksTotal: number;
   emailsSent?: number | null;
   leadsGenerated?: number | null;
+  rejectedCount?: number;
+  needsReviewCount?: number;
 };
 
 export type DashboardStats = {

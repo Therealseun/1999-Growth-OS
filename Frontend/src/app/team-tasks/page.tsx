@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/lib/tasks.api";
 import type { Task } from "@/lib/types";
 import {
-  Button,
   Badge,
   Table,
   TableHeader,
@@ -19,7 +18,7 @@ import {
   ErrorState,
   Skeleton,
 } from "@/components/ui";
-import { Play, CheckCircle, AlertCircle, Mail, Search, Bookmark, FileText } from "lucide-react";
+import { Mail, Search, Bookmark, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -29,10 +28,25 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const STATUS_VARIANT: Record<string, "accent" | "muted" | "success" | "warning" | "danger"> = {
-  PENDING: "muted",
-  IN_PROGRESS: "accent",
-  COMPLETED: "success",
-  BLOCKED: "danger",
+  READY: "accent",
+  REVIEWED: "muted",
+  SENT: "success",
+  PUBLISHED: "success",
+  POSTED: "success",
+  SKIPPED: "warning",
+  INVALID: "danger",
+  EXPIRED: "danger",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  READY: "Ready",
+  REVIEWED: "Reviewed",
+  SENT: "Sent",
+  PUBLISHED: "Published",
+  POSTED: "Posted",
+  SKIPPED: "Skipped",
+  INVALID: "Invalid",
+  EXPIRED: "Expired",
 };
 
 export default function TeamTasksPage() {
@@ -51,6 +65,12 @@ export default function TeamTasksPage() {
   });
 
   const tasks: Task[] = (data?.data as Task[]) ?? [];
+  const filteredTasks = tasks.filter((task) =>
+    !search.trim() ||
+    `${task.title} ${task.description ?? ""} ${task.assignedToName ?? ""}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase())
+  );
 
   return (
     <div>
@@ -68,10 +88,14 @@ export default function TeamTasksPage() {
           aria-label="Filter by status"
         >
           <option value="">All status</option>
-          <option value="PENDING">Pending</option>
-          <option value="IN_PROGRESS">In progress</option>
-          <option value="COMPLETED">Completed</option>
-          <option value="BLOCKED">Blocked</option>
+          <option value="READY">Ready</option>
+          <option value="REVIEWED">Reviewed</option>
+          <option value="SENT">Sent</option>
+          <option value="PUBLISHED">Published</option>
+          <option value="POSTED">Posted</option>
+          <option value="SKIPPED">Skipped</option>
+          <option value="INVALID">Invalid</option>
+          <option value="EXPIRED">Expired</option>
         </select>
       </div>
 
@@ -87,16 +111,16 @@ export default function TeamTasksPage() {
           description={error instanceof Error ? error.message : undefined}
           onRetry={() => queryClient.invalidateQueries({ queryKey: ["team-tasks"] })}
         />
-      ) : tasks.length === 0 ? (
+      ) : filteredTasks.length === 0 ? (
         <EmptyState
-          title="No team tasks"
-          description="Tasks assigned to your team will appear here."
+          title={search.trim() ? "No matching tasks" : "No team tasks"}
+          description={search.trim() ? "Try another search term." : "Tasks assigned to your team will appear here."}
           icon={<FileText className="h-6 w-6 text-[var(--color-luxe-muted-2)]" />}
         />
       ) : (
         <Table>
           <TableCaption>
-            Showing {tasks.length} task{tasks.length === 1 ? "" : "s"} across your team.
+            Showing {filteredTasks.length} task{filteredTasks.length === 1 ? "" : "s"} across your team.
           </TableCaption>
           <TableHeader>
             <TableRow>
@@ -108,7 +132,7 @@ export default function TeamTasksPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tasks.map((task) => (
+            {filteredTasks.map((task) => (
               <TableRow key={task.id}>
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -143,10 +167,7 @@ export default function TeamTasksPage() {
                 </TableCell>
                 <TableCell>
                   <Badge variant={STATUS_VARIANT[task.status] ?? "muted"}>
-                    {task.status === "PENDING" ? "Pending" :
-                     task.status === "IN_PROGRESS" ? "In progress" :
-                     task.status === "COMPLETED" ? "Completed" :
-                     task.status === "BLOCKED" ? "Blocked" : task.status}
+                    {STATUS_LABEL[task.status] ?? task.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="hidden md:table-cell text-sm text-[var(--color-luxe-muted)]">

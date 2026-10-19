@@ -62,7 +62,7 @@ export default function CampaignDetailPage() {
   });
 
   const toggleStatus = useMutation({
-    mutationFn: (status: "ACTIVE" | "PAUSED" | "COMPLETED") =>
+    mutationFn: (status: "ACTIVE" | "PAUSED" | "ARCHIVED") =>
       campaignsApi.update(id, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["campaign", id] });
@@ -122,7 +122,7 @@ export default function CampaignDetailPage() {
           Back to campaigns
         </Button>
         <div className="flex items-center gap-2">
-          {campaign.status !== "COMPLETED" && (
+          {campaign.status !== "ARCHIVED" && (
             <>
               <Button
                 variant={campaign.status === "ACTIVE" ? "secondary" : "primary"}
@@ -137,11 +137,11 @@ export default function CampaignDetailPage() {
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => toggleStatus.mutate("COMPLETED")}
+                onClick={() => toggleStatus.mutate("ARCHIVED")}
                 disabled={toggleStatus.isPending}
               >
                 <Archive className="h-4 w-4" />
-                Complete
+                Archive
               </Button>
             </>
           )}
@@ -182,8 +182,12 @@ export default function CampaignDetailPage() {
                   <p className="mt-1 text-[var(--color-luxe-text)]">{campaign.niche}</p>
                 </div>
                 <div>
-                  <span className="text-xs text-[var(--color-luxe-muted)] uppercase tracking-wider">Target audience</span>
-                  <p className="mt-1 text-[var(--color-luxe-text)]">{campaign.targetAudience}</p>
+                  <span className="text-xs text-[var(--color-luxe-muted)] uppercase tracking-wider">Offer</span>
+                  <p className="mt-1 text-[var(--color-luxe-text)]">{campaign.offer}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-[var(--color-luxe-muted)] uppercase tracking-wider">Location</span>
+                  <p className="mt-1 text-[var(--color-luxe-text)]">{campaign.location}</p>
                 </div>
                 <div>
                   <span className="text-xs text-[var(--color-luxe-muted)] uppercase tracking-wider">Objective</span>
@@ -350,14 +354,12 @@ export default function CampaignDetailPage() {
               </CardHeader>
               <div className="grid grid-cols-2 gap-6">
                 <MetricItem label="Prospects" value={metrics.data.prospectCount} />
-                <MetricItem label="Contacted" value={metrics.data.contactedCount} />
+                <MetricItem label="Sent email tasks" value={metrics.data.contactedCount} />
                 <MetricItem label="Qualified" value={metrics.data.qualifiedCount} />
-                <MetricItem label="Converted" value={metrics.data.convertedCount} />
+                <MetricItem label="Rejected" value={metrics.data.rejectedCount ?? 0} />
+                <MetricItem label="Converted" value={metrics.data.convertedCount == null ? "—" : metrics.data.convertedCount} />
                 <MetricItem label="Tasks completed" value={metrics.data.tasksCompleted ?? 0} />
                 <MetricItem label="Tasks total" value={metrics.data.tasksTotal ?? 0} />
-                {(metrics.data.emailsSent ?? 0) > 0 && (
-                  <MetricItem label="Emails sent" value={metrics.data.emailsSent} />
-                )}
                 {(metrics.data.leadsGenerated ?? 0) > 0 && (
                   <MetricItem label="Leads generated" value={metrics.data.leadsGenerated} />
                 )}
@@ -370,7 +372,7 @@ export default function CampaignDetailPage() {
   );
 }
 
-function MetricItem({ label, value }: { label: string; value: number | null | undefined }) {
+function MetricItem({ label, value }: { label: string; value: number | string | null | undefined }) {
   return (
     <div className="flex flex-col gap-1 rounded-xl border border-[var(--color-luxe-border)] p-3">
       <span className="text-xs text-[var(--color-luxe-muted)] uppercase tracking-wider">{label}</span>

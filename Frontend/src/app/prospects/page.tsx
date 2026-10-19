@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { prospectsApi } from "@/lib/prospects.api";
+import { campaignsApi } from "@/lib/campaigns.api";
 import type { Prospect } from "@/lib/types";
 import {
   Button,
@@ -30,17 +31,15 @@ import { Plus, MoreHorizontal, Mail, User, Building2, CheckCircle, X } from "luc
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<string, string> = {
-  SEED: "Seed",
-  CONTACTED: "Contacted",
   QUALIFIED: "Qualified",
-  CONVERTED: "Converted",
+  REJECTED: "Rejected",
+  NEEDS_REVIEW: "Needs review",
 };
 
 const STATUS_VARIANT: Record<string, "accent" | "muted" | "success" | "warning"> = {
-  SEED: "muted",
-  CONTACTED: "accent",
   QUALIFIED: "success",
-  CONVERTED: "success",
+  REJECTED: "warning",
+  NEEDS_REVIEW: "muted",
 };
 
 export default function ProspectsPage() {
@@ -50,10 +49,15 @@ export default function ProspectsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [newProspect, setNewProspect] = useState({
-    firstName: "",
-    lastName: "",
+    siftId: "",
+    contactName: "",
     email: "",
-    company: "",
+    organisation: "",
+    campaignId: "",
+  });
+  const campaigns = useQuery({
+    queryKey: ["campaigns", "prospects-form"],
+    queryFn: () => campaignsApi.list({ page: 1, pageSize: 100 }),
   });
 
   const { data, isLoading, error } = useQuery({
@@ -86,14 +90,15 @@ export default function ProspectsPage() {
   const createMutation = useMutation({
     mutationFn: () =>
       prospectsApi.create({
-        firstName: newProspect.firstName.trim(),
-        lastName: newProspect.lastName.trim(),
-        email: newProspect.email.trim(),
-        company: newProspect.company.trim() || undefined,
+        siftId: newProspect.siftId.trim(),
+        contactName: newProspect.contactName.trim() || undefined,
+        email: newProspect.email.trim() || undefined,
+        organisation: newProspect.organisation.trim(),
+        campaignId: newProspect.campaignId,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prospects"] });
-      setNewProspect({ firstName: "", lastName: "", email: "", company: "" });
+      setNewProspect({ siftId: "", contactName: "", email: "", organisation: "", campaignId: "" });
       setAddOpen(false);
     },
   });
@@ -115,10 +120,9 @@ export default function ProspectsPage() {
             aria-label="Filter by status"
           >
             <option value="">All status</option>
-            <option value="SEED">Seed</option>
-            <option value="CONTACTED">Contacted</option>
             <option value="QUALIFIED">Qualified</option>
-            <option value="CONVERTED">Converted</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="NEEDS_REVIEW">Needs review</option>
           </select>
         </div>
         <div>
@@ -158,7 +162,7 @@ export default function ProspectsPage() {
               <TableHead>Prospect</TableHead>
               <TableHead>Company</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="hidden sm:table-cell">Source</TableHead>
+              <TableHead className="hidden sm:table-cell">Sift ID</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -172,10 +176,10 @@ export default function ProspectsPage() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-[var(--color-luxe-text)] truncate max-w-[180px]">
-                        {prospect.firstName} {prospect.lastName}
+                        {`${prospect.firstName} ${prospect.lastName}`.trim() || "Unnamed contact"}
                       </p>
                       <p className="text-xs text-[var(--color-luxe-muted)] truncate max-w-[180px]">
-                        {prospect.email}
+                        {prospect.email ?? "No email"}
                       </p>
                     </div>
                   </div>
@@ -210,13 +214,13 @@ export default function ProspectsPage() {
                         onClick={() => {
                           updateMutation.mutate({
                             id: prospect.id,
-                            payload: { status: "CONTACTED" },
+                            payload: { status: "NEEDS_REVIEW" },
                           });
                           setSelectedId(null);
                         }}
                       >
                         <Mail className="mr-2 h-4 w-4" />
-                        Mark contacted
+                        Needs review
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => {
@@ -234,13 +238,13 @@ export default function ProspectsPage() {
                         onClick={() => {
                           updateMutation.mutate({
                             id: prospect.id,
-                            payload: { status: "SEED" },
+                            payload: { status: "REJECTED" },
                           });
                           setSelectedId(null);
                         }}
                       >
                         <X className="mr-2 h-4 w-4" />
-                        Reset to seed
+                        Reject
                       </DropdownMenuItem>
     
                       <DropdownMenuItem
@@ -283,23 +287,33 @@ export default function ProspectsPage() {
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label htmlFor="prospect-first">First name</Label>
+              <Label htmlFor="prospect-sift-id">Sift prospect ID</Label>
               <Input
-                id="prospect-first"
-                value={newProspect.firstName}
-                onChange={(e) => setNewProspect((p) => ({ ...p, firstName: e.target.value }))}
+                id="prospect-sift-id"
+                value={newProspect.siftId}
+                onChange={(e) => setNewProspect((p) => ({ ...p, siftId: e.target.value }))}
                 required
                 className="mt-1"
               />
             </div>
             <div>
-              <Label htmlFor="prospect-last">Last name</Label>
+              <Label htmlFor="prospect-contact">Contact name</Label>
               <Input
-                id="prospect-last"
-                value={newProspect.lastName}
-                onChange={(e) => setNewProspect((p) => ({ ...p, lastName: e.target.value }))}
+                id="prospect-contact"
+                value={newProspect.contactName}
+                onChange={(e) => setNewProspect((p) => ({ ...p, contactName: e.target.value }))}
                 className="mt-1"
               />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="prospect-campaign">Campaign</Label>
+              <select id="prospect-campaign" className="luxe-input mt-1 w-full" required value={newProspect.campaignId}
+                onChange={(e) => setNewProspect((p) => ({ ...p, campaignId: e.target.value }))}>
+                <option value="">Select campaign</option>
+                {(campaigns.data?.data ?? []).map((campaign) => (
+                  <option key={campaign.id} value={campaign.id}>{campaign.name}</option>
+                ))}
+              </select>
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="prospect-email">Email</Label>
@@ -308,16 +322,16 @@ export default function ProspectsPage() {
                 type="email"
                 value={newProspect.email}
                 onChange={(e) => setNewProspect((p) => ({ ...p, email: e.target.value }))}
-                required
                 className="mt-1"
               />
             </div>
             <div className="sm:col-span-2">
-              <Label htmlFor="prospect-company">Company</Label>
+              <Label htmlFor="prospect-company">Organisation</Label>
               <Input
                 id="prospect-company"
-                value={newProspect.company}
-                onChange={(e) => setNewProspect((p) => ({ ...p, company: e.target.value }))}
+                value={newProspect.organisation}
+                onChange={(e) => setNewProspect((p) => ({ ...p, organisation: e.target.value }))}
+                required
                 className="mt-1"
               />
             </div>
@@ -333,7 +347,7 @@ export default function ProspectsPage() {
             <Button variant="secondary" type="button" onClick={() => setAddOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createMutation.isPending}>
+            <Button type="submit" disabled={createMutation.isPending || !newProspect.campaignId}>
               {createMutation.isPending ? "Adding…" : "Add prospect"}
             </Button>
           </div>

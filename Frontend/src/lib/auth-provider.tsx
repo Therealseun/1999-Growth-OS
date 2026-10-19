@@ -2,8 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { authApi, type LoginResponse } from "@/lib/auth.api";
-import { getCurrentProfile, profileToUser } from "@/lib/supabase-data";
-import { getSupabaseClient } from "@/lib/supabase";
+import { apiClient } from "@/lib/api";
 import type { UserRole } from "@/lib/types";
 
 export type AuthUser = {
@@ -32,9 +31,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const data = await authApi.getCurrentUser();
       setUser(data.user);
-    } catch {
+    } catch (error) {
       setUser(null);
-      throw new Error("Could not refresh your account. Please sign in again.");
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -42,27 +41,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const supabase = getSupabaseClient();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      window.setTimeout(() => {
-        void (async () => {
-          try {
-            const profile = session ? await getCurrentProfile() : null;
-            if (!cancelled) setUser(profile ? profileToUser(profile) : null);
-          } catch {
-            await supabase.auth.signOut();
+    const handleUnauthorized = () => {
+      if (!cancelled) {
+        setUser(null);
+        setIsLoading(false);
+      }
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "growthos_auth_token" && event.newValue) {
+        setIsLoading(true);
+        void authApi.getCurrentUser()
+          .then(({ user: currentUser }) => {
+            if (!cancelled) setUser(currentUser);
+          })
+          .catch(() => {
             if (!cancelled) setUser(null);
-          } finally {
+          })
+          .finally(() => {
             if (!cancelled) setIsLoading(false);
-          }
-        })();
-      }, 0);
-    });
+          });
+      } else if (
+        (event.key === "growthos_auth_token" || event.key === "growthos_refresh_token") &&
+        event.newValue === null
+      ) {
+        handleUnauthorized();
+      }
+    };
+    window.addEventListener("growthos:unauthorized", handleUnauthorized);
+    window.addEventListener("storage", handleStorage);
+
+    if (!apiClient.getToken() && !apiClient.getRefreshToken()) {
+      void Promise.resolve().then(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    } else {
+      void authApi.getCurrentUser()
+        .then(({ user: currentUser }) => {
+          if (!cancelled) setUser(currentUser);
+        })
+        .catch(() => {
+          if (!cancelled) setUser(null);
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
+    }
+
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
+      window.removeEventListener("growthos:unauthorized", handleUnauthorized);
+      window.removeEventListener("storage", handleStorage);
     };
   }, []);
 

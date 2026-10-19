@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { workspaceApi } from "@/lib/workspace.api";
 import { campaignsApi } from "@/lib/campaigns.api";
 import type { Campaign } from "@/lib/types";
 import {
-  Button,
   Badge,
   Card,
   CardHeader,
@@ -20,7 +19,7 @@ import {
   Skeleton,
   Separator,
 } from "@/components/ui";
-import { Lighthouse, Target, RefreshCw } from "lucide-react";
+import { Lighthouse, Target } from "lucide-react";
 
 type KeywordRow = { keyword: string; volume: string; difficulty: string; intent: string };
 
@@ -105,13 +104,6 @@ export default function SeoPage() {
   const recsList = recsPayload.recommendations ?? [];
   const recsErrors = recsPayload.errors ?? [];
 
-  const runAudit = useMutation({
-    mutationFn: (id: string) => workspaceApi.createSeoAudit(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["seo-audits", campaignId] });
-    },
-  });
-
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
@@ -130,25 +122,11 @@ export default function SeoPage() {
               </option>
             ))}
           </select>
-          <Button
-            variant="secondary"
-            className="gap-2"
-            disabled={!campaignId || runAudit.isPending}
-            onClick={() => runAudit.mutate(campaignId)}
-          >
-            <RefreshCw className={`h-4 w-4 ${runAudit.isPending ? "animate-spin" : ""}`} />
-            {runAudit.isPending ? "Running…" : "Run audit"}
-          </Button>
         </div>
       </div>
-      {runAudit.isError && (
-        <p role="alert" className="mb-4 text-sm text-[var(--color-luxe-danger)]">{runAudit.error.message}</p>
-      )}
-      {runAudit.isSuccess && (
-        <p role="status" className="mb-4 text-sm text-[var(--color-luxe-success)]">
-          Audit record saved. Automated site scanning is not connected yet, so no score has been generated.
-        </p>
-      )}
+      <p className="mb-4 text-sm text-[var(--color-luxe-muted)]">
+        SEO scans are not currently connected. This workspace displays saved audit results and approved niche research.
+      </p>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
@@ -172,19 +150,8 @@ export default function SeoPage() {
           ) : audits.length === 0 ? (
             <EmptyState
               title="No SEO audits yet"
-              description="Run an audit for a selected campaign to see performance, SEO, and accessibility scores."
+              description="Audits appear here when an external SEO scanner submits real results for this campaign."
               icon={<Lighthouse className="h-6 w-6 text-[var(--color-luxe-muted-2)]" />}
-              action={
-                <Button
-                  variant="secondary"
-                  className="gap-2"
-                  disabled={!campaignId}
-                  onClick={() => runAudit.mutate(campaignId)}
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Run audit
-                </Button>
-              }
             />
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -206,7 +173,9 @@ export default function SeoPage() {
                       </div>
                     </CardHeader>
                     <div className="flex items-center gap-4 py-2">
-                      <ScoreRing score={a.overallScore ?? 0} label="Overall" />
+                      {a.overallScore != null ? <ScoreRing score={a.overallScore} label="Overall" /> : (
+                        <p className="text-sm text-[var(--color-luxe-muted)]">No overall score was supplied.</p>
+                      )}
                       <div className="flex gap-3 text-xs text-[var(--color-luxe-muted)]">
                         {Object.entries(a.categories ?? {}).map(([k, v]) => (
                           <div key={k} className="text-left">
@@ -226,7 +195,7 @@ export default function SeoPage() {
                     <CardTitle>No audits for this campaign</CardTitle>
                   </CardHeader>
                   <p className="text-sm text-[var(--color-luxe-muted)]">
-                    Run an audit to score performance, accessibility, SEO and best practices.
+                    An external SEO scanner has not submitted an audit for this campaign.
                   </p>
                 </Card>
               )}
@@ -278,7 +247,7 @@ export default function SeoPage() {
                 </div>
                 <Separator className="my-3" />
                 <p className="text-xs text-[var(--color-luxe-muted-2)]">
-                  Keyword research is generated from this campaign’s niche by the GrowthOS research layer.
+                  Keyword data is read from the campaign’s approved niche profile.
                 </p>
               </div>
             ) : (
@@ -314,19 +283,8 @@ export default function SeoPage() {
               {recsList.length === 0 ? (
                 <EmptyState
                   title="No recommendations yet"
-                  description="Run an audit to generate prioritized recommendations."
+                  description="Recommendations appear here when saved audit or niche-profile data provides them."
                   icon={<Lighthouse className="h-6 w-6 text-[var(--color-luxe-muted-2)]" />}
-                  action={
-                    <Button
-                      variant="secondary"
-                      className="gap-2"
-                      disabled={!campaignId || runAudit.isPending}
-                      onClick={() => runAudit.mutate(campaignId)}
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Run audit
-                    </Button>
-                  }
                 />
               ) : (
                 <div className="space-y-3">

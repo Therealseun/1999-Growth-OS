@@ -6,7 +6,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button, Card, ErrorState, Input, Label, Skeleton } from "@/components/ui";
-import { getCurrentProfile, updateCurrentProfileName } from "@/lib/supabase-data";
+import { getCurrentProfile, updateCurrentProfileName } from "@/lib/profile.api";
 import { useAuth } from "@/lib/auth-provider";
 import { Check, ShieldCheck, UserRound } from "lucide-react";
 
