@@ -42,6 +42,7 @@ npm install
    - `CORS_ORIGINS`: the frontend address, `http://localhost:3000` for local work.
    - `DATABASE_SSL`: leave `verify`. On a certificate error, paste the CA from Database, SSL Configuration into `DATABASE_CA_CERT`.
    - If Supabase Auth reports `self-signed certificate in certificate chain`, configure Node to trust your network's verified root CA. In PowerShell, set `$env:NODE_EXTRA_CA_CERTS = 'C:\path\to\trusted-root-ca.pem'` before starting `npm run dev` or nodemon. Keep certificate verification enabled; `DATABASE_CA_CERT` only configures PostgreSQL, not HTTPS calls to Supabase.
+   - On Render, the startup log identifies whether the failed certificate check was PostgreSQL or Supabase Auth. For PostgreSQL, set `DATABASE_CA_CERT` to the PEM CA certificate from your database provider. For Supabase Auth, add the verified CA as a Render Secret File and set `NODE_EXTRA_CA_CERTS` to that file's mounted path. Do not disable TLS certificate verification.
 2. **Migration.** Supabase dashboard, SQL Editor, paste all of `supabase/migrations/0001_init.sql`, Run. Do not run
    `00_supabase_stub.sql`, it is only for local tests. Check with `select count(*) from app_settings;` which must return 5.
 3. **Token signing.** Project Settings, JWT Keys. Leave `SUPABASE_JWT_SECRET` empty on projects with asymmetric signing keys.
