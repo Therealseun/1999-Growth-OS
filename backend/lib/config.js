@@ -23,6 +23,7 @@ const schema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  EVIDENCE_BUCKET: z.string().trim().min(1).default('evidence'),
   SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
   SUPABASE_JWT_SECRET: z.string().optional(),
   ADMIN_EMAIL: z.string().trim().email().optional(),

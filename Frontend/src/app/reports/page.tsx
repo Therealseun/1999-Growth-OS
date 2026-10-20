@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { reportsApi } from "@/lib/reports.api";
@@ -24,21 +25,20 @@ import {
 import { BarChart3, Download, RefreshCw, TrendingUp, Users, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DashboardStats } from "@/lib/types";
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-} from "recharts";
-
-const DISTRIBUTION_COLORS: Record<string, string> = {
-  Completed: "var(--color-luxe-success)",
-  "In progress": "var(--color-luxe-info)",
-  Pending: "var(--color-luxe-warning)",
-  Blocked: "var(--color-luxe-danger)",
-};
+const TaskDistributionChart = dynamic(
+  () =>
+    import("@/components/reports/task-distribution-chart").then(
+      (module) => module.TaskDistributionChart
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-48 items-center justify-center text-sm text-[var(--color-luxe-muted)]" role="status">
+        Loading chart…
+      </div>
+    ),
+  }
+);
 
 type DistributionRow = { name?: string; value?: number; count?: number };
 
@@ -171,43 +171,7 @@ export default function ReportsPage() {
                   No tasks recorded yet.
                 </div>
               ) : (
-                <div className="h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={taskDistribution
-                          .map((row) => ({
-                            name: row.name ?? "Other",
-                            value: row.value ?? row.count ?? 0,
-                          }))
-                          .filter((row) => row.value > 0)}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={45}
-                        outerRadius={70}
-                        paddingAngle={2}
-                      >
-                        {taskDistribution.map((row, i) => (
-                          <Cell
-                            key={i}
-                            fill={DISTRIBUTION_COLORS[row.name ?? ""] ?? "var(--color-luxe-accent)"}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          background: "var(--color-luxe-surface-2)",
-                          border: "1px solid var(--color-luxe-border)",
-                          borderRadius: 8,
-                          color: "var(--color-luxe-text)",
-                        }}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: 12, color: "var(--color-luxe-muted)" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
+                <TaskDistributionChart data={taskDistribution} />
               )}
             </Card>
 

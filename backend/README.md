@@ -36,10 +36,12 @@ npm install
    - `DATABASE_URL`: Supabase dashboard, Connect, Transaction pooler (port 6543), with the database password filled in.
    - `SUPABASE_URL`, `SUPABASE_ANON_KEY`: Project Settings, API.
    - `SUPABASE_SERVICE_ROLE_KEY`: Project Settings, API; required to create the initial administrator.
+   - `EVIDENCE_BUCKET`: private Supabase Storage bucket for task evidence (defaults to `evidence`). Configure the bucket with a 5 MiB file-size limit and allow only PNG, JPEG, WebP, and PDF files; the backend checks uploaded size and content before attaching evidence.
    - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: credentials for the initial administrator. The account is created and activated at backend startup if it does not exist.
    - `CRON_SECRET`: run `openssl rand -hex 32`, or type any random 40 characters.
    - `CORS_ORIGINS`: the frontend address, `http://localhost:3000` for local work.
    - `DATABASE_SSL`: leave `verify`. On a certificate error, paste the CA from Database, SSL Configuration into `DATABASE_CA_CERT`.
+   - If Supabase Auth reports `self-signed certificate in certificate chain`, configure Node to trust your network's verified root CA. In PowerShell, set `$env:NODE_EXTRA_CA_CERTS = 'C:\path\to\trusted-root-ca.pem'` before starting `npm run dev` or nodemon. Keep certificate verification enabled; `DATABASE_CA_CERT` only configures PostgreSQL, not HTTPS calls to Supabase.
 2. **Migration.** Supabase dashboard, SQL Editor, paste all of `supabase/migrations/0001_init.sql`, Run. Do not run
    `00_supabase_stub.sql`, it is only for local tests. Check with `select count(*) from app_settings;` which must return 5.
 3. **Token signing.** Project Settings, JWT Keys. Leave `SUPABASE_JWT_SECRET` empty on projects with asymmetric signing keys.

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth-provider";
 import { tasksApi } from "@/lib/tasks.api";
 import {
   Button,
@@ -68,21 +69,29 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function MyTasksPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [activeTab, setActiveTab] = useState("ready");
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [evidenceType, setEvidenceType] = useState<"LINK" | "NOTE">("LINK");
+  const [evidenceType, setEvidenceType] = useState<"LINK" | "NOTE" | "FILE">("LINK");
   const [evidenceTitle, setEvidenceTitle] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
 
   const resetEvidenceForm = () => {
     setEvidenceType("LINK");
     setEvidenceTitle("");
     setEvidenceUrl("");
+    setEvidenceFile(null);
   };
+
+  const todayQuery = useQuery({
+    queryKey: ["tasks-today"],
+    queryFn: tasksApi.getTodaySummary,
+  });
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["my-tasks", { search, status: statusFilter }],
@@ -129,6 +138,29 @@ export default function MyTasksPage() {
 
   return (
     <div>
+      {todayQuery.isError ? (
+        <p role="alert" className="mb-4 text-sm text-[var(--color-luxe-danger)]">
+          Could not load today&apos;s workload: {todayQuery.error.message}
+        </p>
+      ) : todayQuery.data ? (
+        <section className="luxe-card mb-5 p-4" aria-label="Today's workload">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-medium">Today&apos;s workload</h2>
+              <p className="text-sm text-[var(--color-luxe-muted)]">
+                {todayQuery.data.total_completed} of {todayQuery.data.total_required} tasks completed · {todayQuery.data.completion_pct}% complete
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-4 text-xs">
+              {todayQuery.data.workstreams.map((workstream) => (
+                <span key={workstream.workstream}>
+                  {TYPE_LABEL[workstream.workstream]}: {workstream.completed}/{workstream.required} · {workstream.prepared} prepared
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
       <p className="mb-3 text-xs text-[var(--color-luxe-muted)]" aria-live="polite">
         Showing {filteredTasks.length} of {total} assigned tasks
       </p>
@@ -275,7 +307,7 @@ export default function MyTasksPage() {
           <div>
             <Label htmlFor="evidence-type">Evidence type</Label>
             <div className="mt-1 flex gap-2" role="radiogroup" aria-label="Evidence type">
-              {(["LINK", "NOTE"] as const).map((t) => (
+              {(["LINK", "NOTE", ...(user?.role === "EMPLOYEE" ? ["FILE" as const] : [])] as const).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -289,12 +321,12 @@ export default function MyTasksPage() {
                       : "border-[var(--color-luxe-border)] text-[var(--color-luxe-muted)] hover:border-[var(--color-luxe-border-strong)]"
                   )}
                 >
-                  {t === "LINK" ? "URL" : "Text note"}
+                  {t === "LINK" ? "URL" : t === "NOTE" ? "Text note" : "File"}
                 </button>
               ))}
             </div>
           </div>
-          <div>
+          {evidenceType === "NOTE" && <div>
             <Label htmlFor="evidence-title">Text note</Label>
             <Input
               id="evidence-title"
@@ -303,7 +335,7 @@ export default function MyTasksPage() {
               placeholder="Describe the execution evidence"
               className="mt-1"
             />
-          </div>
+          </div>}
           {evidenceType === "LINK" && <div>
             <Label htmlFor="evidence-url">URL / link</Label>
             <Input
@@ -312,6 +344,16 @@ export default function MyTasksPage() {
               value={evidenceUrl}
               onChange={(e) => setEvidenceUrl(e.target.value)}
               placeholder="https://example.com"
+              className="mt-1"
+            />
+          </div>}
+          {evidenceType === "FILE" && <div>
+            <Label htmlFor="evidence-file">Evidence file (PNG, JPEG, WebP, or PDF; up to 5 MiB)</Label>
+            <Input
+              id="evidence-file"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,application/pdf"
+              onChange={(event) => setEvidenceFile(event.target.files?.[0] ?? null)}
               className="mt-1"
             />
           </div>}
@@ -337,10 +379,14 @@ export default function MyTasksPage() {
                   type: evidenceType,
                   url: evidenceUrl.trim() || undefined,
                   note: evidenceType === "NOTE" ? evidenceTitle.trim() || undefined : undefined,
+                  file: evidenceType === "FILE" ? evidenceFile ?? undefined : undefined,
                 },
               })
             }
-            disabled={evidenceMutation.isPending || !selectedTaskId}
+            disabled={evidenceMutation.isPending || !selectedTaskId ||
+              (evidenceType === "FILE" && !evidenceFile) ||
+              (evidenceType === "LINK" && !evidenceUrl.trim()) ||
+              (evidenceType === "NOTE" && !evidenceTitle.trim())}
           >
             <FileCheck className="h-4 w-4" />
             {evidenceMutation.isPending ? "Submitting…" : "Submit evidence"}

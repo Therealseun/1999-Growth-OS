@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: GrowthOS provider contract (AI and Sift services)
+  version: 1.0.0-draft
+  description: |
+    What GrowthOS calls on the AI and Sift services. The AI/Sift developer implements these endpoints.
+    Results do NOT come back in the response. They are delivered later by calling the GrowthOS
+    /api/integrations endpoints (see openapi.yaml).
+
+    Flow for every request:
+    1. GrowthOS calls an endpoint below with a `job_id` (GrowthOS id) and the work to do.
+    2. The service answers within 5 seconds with 202 and its own `external_job_id`.
+    3. The service works in the background and delivers results in batches of at most 100
+       to the matching /api/integrations endpoint, always sending the same `job_id`.
+    4. When the last batch is delivered, the service calls POST /api/integrations/jobs/{job_id}/status
+       with COMPLETED, or FAILED with an error.
+    5. If a callback is not possible, GET /v1/jobs/{external_job_id} below is the fallback and GrowthOS polls it.
+
+    Rules:
+    - Idempotency: if GrowthOS repeats a request with the same `job_id`, return the existing job. Never start a second one.
+    - Every delivered item carries a stable `external_ref`. Redelivering a batch is safe.
+    - The service is stateless about GrowthOS data. Everything it needs is in the request.
+    - Partial delivery is fine. Fewer items than `count` with a COMPLETED status means the source ran dry.
+    - Authentication from GrowthOS to the service is a bearer token the service owner issues.
+servers:
+  - url: https://ai-service.example.com
+    description: Replace with the real base URL of the AI/Sift service
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/niche-analysis:
+    post:
+      summary: Build the Niche Intelligence profile for a campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign: {$ref: '#/components/schemas/CampaignBrief'}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '422': {description: Rejected request}
+
+  /v1/prospect-search:
+    post:
+      summary: Find prospects through Sift and run the qualification layer
+      description: Deliver results to POST /api/integrations/prospects with qualification_status set on each item.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign, niche_profile, count]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign: {$ref: '#/components/schemas/CampaignBrief'}
+                niche_profile: {type: object, additionalProperties: true}
+                count: {type: integer, description: How many QUALIFIED prospects GrowthOS wants}
+                exclude_sift_ids:
+                  type: array
+                  items: {type: string}
+                  description: Prospects GrowthOS already holds. Do not return them again.
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+
+  /v1/email-generation:
+    post:
+      summary: Write one personalised email per prospect
+      description: Deliver results to POST /api/integrations/email-tasks. Use the prospect `id` as `prospect_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign, niche_profile, prospects]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign: {$ref: '#/components/schemas/CampaignBrief'}
+                niche_profile: {type: object, additionalProperties: true}
+                messaging_constraints: {type: string, description: Approved wording rules for this campaign}
+                prospects:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [id, organisation]
+                    properties:
+                      id: {type: string, format: uuid}
+                      organisation: {type: string}
+                      contact_name: {type: string}
+                      email: {type: string}
+                      website: {type: string}
+                      industry: {type: string}
+                      location: {type: string}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+
+  /v1/seo-generation:
+    post:
+      summary: Plan and write SEO articles
+      description: Deliver results to POST /api/integrations/seo-tasks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign, niche_profile, count]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign: {$ref: '#/components/schemas/CampaignBrief'}
+                niche_profile: {type: object, additionalProperties: true}
+                count: {type: integer}
+                existing_topics:
+                  type: array
+                  items: {type: string}
+                  description: Topics and keywords already used by this campaign. Avoid repeating them.
+                approved_platforms: {type: array, items: {type: string}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+
+  /v1/lead-magnet-generation:
+    post:
+      summary: Find relevant conversations and write a comment for each
+      description: Deliver results to POST /api/integrations/lead-magnet-tasks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign, niche_profile, count]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign: {$ref: '#/components/schemas/CampaignBrief'}
+                niche_profile: {type: object, additionalProperties: true}
+                count: {type: integer}
+                exclude_post_urls: {type: array, items: {type: string}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+
+  /v1/jobs/{external_job_id}:
+    get:
+      summary: Job status. Used by GrowthOS only when the service cannot call back.
+      parameters:
+        - {name: external_job_id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, enum: [ACCEPTED, RUNNING, COMPLETED, FAILED]}
+                  delivered_count: {type: integer}
+                  error: {type: string, nullable: true}
+        '404': {description: Unknown job}
+
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  responses:
+    Accepted:
+      description: Job accepted. Results follow through the GrowthOS integration endpoints.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [external_job_id]
+            properties:
+              external_job_id: {type: string}
+  schemas:
+    CampaignBrief:
+      type: object
+      required: [id, name, niche, offer, location, objective]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        niche: {type: string}
+        offer: {type: string}
+        location: {type: string}
+        objective: {type: string}

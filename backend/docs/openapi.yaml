@@ -1,0 +1,1339 @@
+openapi: 3.0.3
+info:
+  title: GrowthOS V1 API
+  version: 1.0.0-draft
+  description: |
+    Backend contract for GrowthOS V1. Draft for sign-off by the frontend developer and the AI/Sift developer.
+
+    Three kinds of caller:
+    - Browser users (Admin, Manager, Employee): Bearer JWT issued by Supabase Auth.
+    - AI/Sift services: header `X-Integration-Key`, only the /api/integrations endpoints.
+    - Scheduler: Bearer CRON_SECRET, only the /api/internal/cron endpoints.
+
+    Rules every caller can rely on:
+    - Every list endpoint is paginated with `limit` (default 50, max 200) and `cursor`.
+    - Dates are `YYYY-MM-DD` in Africa/Lagos. Timestamps are ISO 8601 UTC.
+    - Errors always use the Error schema. 401 = no or bad credentials, 403 = not allowed, 409 = state conflict, 422 = validation.
+    - Totals are never accepted from a client. `total_daily_tasks` is always calculated by the server.
+    - Teammate batches are idempotent on `external_ref`. Sending the same batch twice is safe.
+    - Batches hold at most 100 items. Larger deliveries must be split.
+
+    Error codes the frontend should handle (`error.code`):
+    - 401 `UNAUTHORIZED` (no token), `INVALID_TOKEN`, `TOKEN_EXPIRED` (call /api/auth/refresh, then retry once), `INVALID_CREDENTIALS`, `INVALID_REFRESH_TOKEN` (send the user to the login screen).
+    - 403 `ACCOUNT_PENDING` (show "waiting for approval"), `ACCOUNT_DISABLED`, `ROLE_NOT_ALLOWED`, `NO_PROFILE`, `MISSING_SCOPE`, `EMAIL_NOT_CONFIRMED`.
+    - 404 `NOT_FOUND`. Also returned for records outside the caller's scope, so existence is not revealed.
+    - 409 `TASK_LOCKED` (completed tasks cannot change), `RECORD_IMMUTABLE`, `DUPLICATE`, `CONFLICT`.
+    - 413 `PAYLOAD_TOO_LARGE`. 422 `VALIDATION_FAILED` (see `details.fields`), `INVALID_JSON`, `WEAK_PASSWORD`, `REFERENCE_NOT_FOUND`, `CONSTRAINT_VIOLATED`, `MISSING_FIELD`, `INVALID_VALUE`.
+    - 429 `RATE_LIMITED`. 502 `AUTH_PROVIDER_ERROR`. 503 `RETRY`. 500 `INTERNAL` (quote the reference in the message when reporting).
+    - Further 409 codes: `NOT_PENDING`, `ACCOUNT_PENDING_APPROVAL`, `CANNOT_MODIFY_SELF`, `LAST_ADMIN`, `TARGET_DAY_LOCKED`, `CAMPAIGN_ARCHIVED`, `INVALID_TRANSITION`, `NICHE_NOT_APPROVED`, `NO_TARGETS`, `ACTIVE_CAMPAIGN_EXISTS`, `JOB_IN_PROGRESS`, `JOB_CLOSED`, `NOT_A_DRAFT`, `TASK_CLOSED` (skipped, invalid or expired tasks cannot change).
+    - Further 403 codes: `NOT_TASK_OWNER`, `DEPARTMENT_NOT_ALLOWED`. Further 422 codes: `INVALID_CURSOR`, `EVIDENCE_FILE_NOT_YOURS`, `EVIDENCE_FILE_MISSING`. 502 `PROVIDER_ERROR` and `STORAGE_ERROR`. 503 `STORAGE_NOT_CONFIGURED`.
+    - Only the assigned Employee can change or complete a task. Managers and Admins read.
+    - Every response carries an `x-request-id` header.
+servers:
+  - url: https://staging.example.com
+    description: Replace with the staging URL once hosting is chosen
+tags:
+  - name: Auth
+  - name: Admin
+  - name: Campaigns
+  - name: Tasks
+  - name: Email
+  - name: SEO
+  - name: Lead Magnets
+  - name: Evidence
+  - name: Reports
+  - name: Integrations (called by AI and Sift services)
+  - name: Internal (called by the scheduler)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/auth/signup:
+    post:
+      tags: [Auth]
+      summary: Create an account. It stays PENDING until an Admin approves it.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: {type: string}
+                email: {type: string, format: email}
+                password: {type: string, minLength: 8}
+      description: |
+        The answer is the same whether or not the email already exists, so the endpoint cannot be used to find out
+        who has an account. Any role or status sent in the body is ignored. New accounts are always EMPLOYEE and PENDING.
+      responses:
+        '201':
+          description: Account created, awaiting approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SignupResult'}
+        '422': {$ref: '#/components/responses/Invalid'}
+        '429': {description: Too many attempts}
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in. PENDING and DISABLED accounts get 403.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email}
+                password: {type: string}
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: {type: string}
+                  refresh_token: {type: string}
+                  expires_in: {type: integer}
+                  profile: {$ref: '#/components/schemas/Profile'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renew an expired access token. The account is checked again.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: {type: string}
+      responses:
+        '200':
+          description: New session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: {type: string}
+                  refresh_token: {type: string}
+                  expires_in: {type: integer}
+                  profile: {$ref: '#/components/schemas/Profile'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Profile'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: List users. Admin sees all, Manager sees own department.
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/UserStatus'}}
+        - {name: department_id, in: query, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Profile'}}
+                  next_cursor: {type: string, nullable: true}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /api/admin/users/{id}/approve:
+    post:
+      tags: [Admin]
+      summary: Approve a PENDING user. Admin only.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, department_id]
+              properties:
+                role: {$ref: '#/components/schemas/Role'}
+                department_id: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Profile'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  /api/admin/users/{id}:
+    patch:
+      tags: [Admin]
+      summary: Change role, department or status (DISABLED removes access). Admin only.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: {$ref: '#/components/schemas/Role'}
+                department_id: {type: string, format: uuid}
+                status: {$ref: '#/components/schemas/UserStatus'}
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Profile'}
+
+  /api/departments:
+    get:
+      tags: [Admin]
+      summary: List departments
+      responses:
+        '200':
+          description: Departments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Department'}
+    post:
+      tags: [Admin]
+      summary: Create a department. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Department'}
+
+  /api/campaigns:
+    post:
+      tags: [Campaigns]
+      summary: Create a campaign. Admin or Manager.
+      description: Starts as DRAFT. Assignments are created automatically from the department.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, niche, offer, location, objective, department_id]
+              properties:
+                name: {type: string}
+                niche: {type: string, example: Nigerian Private Schools}
+                offer: {type: string, example: Bearilly AI Tutor}
+                location: {type: string}
+                objective: {type: string}
+                department_id: {type: string, format: uuid}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Campaign'}
+        '422': {$ref: '#/components/responses/Invalid'}
+    get:
+      tags: [Campaigns]
+      summary: List campaigns visible to the caller
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/CampaignStatus'}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Campaign'}}
+                  next_cursor: {type: string, nullable: true}
+
+  /api/campaigns/{id}:
+    get:
+      tags: [Campaigns]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Campaign with its current effective targets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Campaign'}
+                  - type: object
+                    properties:
+                      effective_targets: {$ref: '#/components/schemas/Targets'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Campaigns]
+      summary: Edit a campaign or change its status. ACTIVE needs an approved niche profile (when approval is required) and daily targets.
+      description: |
+        Allowed moves: DRAFT to ACTIVE or ARCHIVED, ACTIVE to PAUSED or ARCHIVED, PAUSED to ACTIVE or ARCHIVED. ARCHIVED is final.
+        Activating creates today's workloads for the team at once, so they do not wait for the nightly run.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                offer: {type: string}
+                location: {type: string}
+                objective: {type: string}
+                status: {$ref: '#/components/schemas/CampaignStatus'}
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Campaign'}
+        '409':
+          description: Department already has an ACTIVE campaign, or the niche profile is not approved
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+
+  /api/campaigns/{id}/analyze-niche:
+    post:
+      tags: [Campaigns]
+      summary: Ask the AI service to build the Niche Intelligence profile. Asynchronous.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '202':
+          description: Job created. The profile arrives through /api/integrations/niche-profiles.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+
+  /api/campaigns/{id}/niche-profile:
+    get:
+      tags: [Campaigns]
+      summary: Latest niche profile (any status)
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NicheProfile'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /api/campaigns/{id}/niche-profile/approve:
+    post:
+      tags: [Campaigns]
+      summary: Approve the latest DRAFT niche profile. Admin or Manager. Work generation starts only after this.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NicheProfile'}
+
+  /api/campaigns/{id}/prospect-search:
+    post:
+      tags: [Campaigns]
+      summary: Manually trigger a prospect search. The pipeline also triggers searches by itself when the pool runs low.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count: {type: integer, minimum: 1, maximum: 5000}
+      responses:
+        '202':
+          description: Job created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+
+  /api/campaigns/{id}/prospects:
+    get:
+      tags: [Campaigns]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {name: qualification_status, in: query, schema: {$ref: '#/components/schemas/QualificationStatus'}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Prospects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Prospect'}}
+                  next_cursor: {type: string, nullable: true}
+
+  /api/prospects/{id}:
+    get:
+      tags: [Campaigns]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Prospect
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Prospect'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /api/admin/targets:
+    get:
+      tags: [Admin]
+      summary: Effective targets. Without campaign_id returns the global default.
+      parameters:
+        - {name: campaign_id, in: query, schema: {type: string, format: uuid}}
+        - {name: date, in: query, schema: {type: string, format: date}}
+      responses:
+        '200':
+          description: Targets with the server calculated total
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Targets'}
+    patch:
+      tags: [Admin]
+      summary: Change targets. Admin only. Creates a new row, never edits an old one.
+      description: |
+        `effective_from` defaults to tomorrow. A date in the past is rejected.
+        If today's workloads were already generated, a change effective today is rejected with 409.
+        The body must not contain a total. The server calculates it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email_daily_target, seo_daily_target, lead_magnet_daily_target]
+              properties:
+                campaign_id: {type: string, format: uuid, nullable: true, description: Omit for the global default}
+                email_daily_target: {type: integer, minimum: 0}
+                seo_daily_target: {type: integer, minimum: 0}
+                lead_magnet_daily_target: {type: integer, minimum: 0}
+                workdays_per_month: {type: integer, minimum: 1, maximum: 31}
+                effective_from: {type: string, format: date}
+      responses:
+        '200':
+          description: New target row
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Targets'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
+
+  /api/tasks/today:
+    get:
+      tags: [Tasks]
+      summary: Employee dashboard data for today. Every number comes from today's workload snapshot.
+      parameters:
+        - {name: employee_id, in: query, description: 'Manager or Admin only', schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Today
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TodaySummary'}
+
+  /api/email-tasks:
+    get:
+      tags: [Email]
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/EmailTaskStatus'}}
+        - {name: employee_id, in: query, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Own tasks for an Employee, department tasks for a Manager
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/EmailTask'}}
+                  next_cursor: {type: string, nullable: true}
+  /api/email-tasks/{id}:
+    get:
+      tags: [Email]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EmailTask'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Email]
+      summary: Edit subject or body, mark REVIEWED, SKIPPED (reason required) or INVALID. Completed tasks return 409.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject: {type: string}
+                body: {type: string}
+                status: {type: string, enum: [REVIEWED, SKIPPED, INVALID]}
+                skip_reason: {type: string}
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EmailTask'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/email-tasks/{id}/mark-sent:
+    post:
+      tags: [Email]
+      summary: Mark sent. Locks the task.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                evidence: {$ref: '#/components/schemas/EvidenceInput'}
+      responses:
+        '200':
+          description: Sent
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EmailTask'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  /api/seo-tasks:
+    get:
+      tags: [SEO]
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/SeoTaskStatus'}}
+        - {name: employee_id, in: query, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: SEO tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/SeoTask'}}
+                  next_cursor: {type: string, nullable: true}
+  /api/seo-tasks/{id}:
+    get:
+      tags: [SEO]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SeoTask'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [SEO]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string}
+                article: {type: string}
+                meta_title: {type: string}
+                meta_description: {type: string}
+                cta: {type: string}
+                platform: {type: string}
+                status: {type: string, enum: [REVIEWED, SKIPPED, INVALID]}
+                skip_reason: {type: string}
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SeoTask'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/seo-tasks/{id}/publish:
+    post:
+      tags: [SEO]
+      summary: Mark published. A published URL is required. Locks the task.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [published_url]
+              properties:
+                published_url: {type: string, format: uri}
+                platform: {type: string}
+                evidence: {$ref: '#/components/schemas/EvidenceInput'}
+      responses:
+        '200':
+          description: Published
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SeoTask'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
+
+  /api/lead-magnet-tasks:
+    get:
+      tags: [Lead Magnets]
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/LeadTaskStatus'}}
+        - {name: employee_id, in: query, schema: {type: string, format: uuid}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Lead magnet tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/LeadMagnetTask'}}
+                  next_cursor: {type: string, nullable: true}
+  /api/lead-magnet-tasks/{id}:
+    get:
+      tags: [Lead Magnets]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeadMagnetTask'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Lead Magnets]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: {type: string}
+                status: {type: string, enum: [REVIEWED, SKIPPED, INVALID]}
+                skip_reason: {type: string}
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeadMagnetTask'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /api/lead-magnet-tasks/{id}/mark-posted:
+    post:
+      tags: [Lead Magnets]
+      summary: Mark posted. Evidence is required. Locks the task.
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [evidence]
+              properties:
+                comment: {type: string, description: Final text if the employee changed it}
+                evidence_url: {type: string, format: uri}
+                evidence: {$ref: '#/components/schemas/EvidenceInput'}
+      responses:
+        '200':
+          description: Posted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LeadMagnetTask'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Invalid'}
+
+  /api/evidence/upload-url:
+    post:
+      tags: [Evidence]
+      summary: Get a short lived signed URL to upload a screenshot or file to company storage.
+      description: |
+        Upload the file with PUT to `upload_url` (valid 2 hours), then pass `storage_path` in an EvidenceInput of type FILE.
+        The path always starts with the caller's own id. Completing a task checks that the file exists and is the caller's.
+        Employees only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, content_type]
+              properties:
+                filename: {type: string}
+                content_type: {type: string, enum: [image/png, image/jpeg, image/webp, application/pdf]}
+                size_bytes: {type: integer, maximum: 5242880}
+      responses:
+        '200':
+          description: Signed URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url: {type: string, format: uri}
+                  storage_path: {type: string}
+                  expires_in: {type: integer}
+        '422': {$ref: '#/components/responses/Invalid'}
+
+  /api/reports/today:
+    get:
+      tags: [Reports]
+      summary: Today. Employee gets own report, Manager gets own department, Admin gets everything.
+      parameters:
+        - {name: format, in: query, schema: {type: string, enum: [json, csv], default: json}}
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportRows'}
+            text/csv:
+              schema: {type: string}
+  /api/reports/campaign/{id}:
+    get:
+      tags: [Reports]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/From'}
+        - {$ref: '#/components/parameters/To'}
+        - {name: format, in: query, schema: {type: string, enum: [json, csv], default: json}}
+      responses:
+        '200':
+          description: One row per employee per day, from the historical snapshots
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportRows'}
+            text/csv:
+              schema: {type: string}
+  /api/reports/employee/{id}:
+    get:
+      tags: [Reports]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/From'}
+        - {$ref: '#/components/parameters/To'}
+        - {name: format, in: query, schema: {type: string, enum: [json, csv], default: json}}
+      responses:
+        '200':
+          description: One row per campaign per day
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportRows'}
+            text/csv:
+              schema: {type: string}
+
+  /api/admin/audit-log:
+    get:
+      tags: [Admin]
+      summary: Audit log. Admin only.
+      parameters:
+        - {name: entity_type, in: query, schema: {type: string}}
+        - {name: entity_id, in: query, schema: {type: string}}
+        - {$ref: '#/components/parameters/From'}
+        - {$ref: '#/components/parameters/To'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Entries, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: integer}
+                        actor_id: {type: string, format: uuid, nullable: true}
+                        action: {type: string}
+                        entity_type: {type: string}
+                        entity_id: {type: string}
+                        before: {type: object, nullable: true}
+                        after: {type: object, nullable: true}
+                        created_at: {type: string, format: date-time}
+                  next_cursor: {type: string, nullable: true}
+
+  /api/admin/integration-clients:
+    post:
+      tags: [Admin]
+      summary: Create a key for the AI or Sift service. The key is shown once. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, example: ai-service}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string, format: uuid}
+                  name: {type: string}
+                  key: {type: string, description: Shown only in this response}
+  /api/admin/integration-clients/{id}:
+    delete:
+      tags: [Admin]
+      summary: Revoke a key
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '204': {description: Revoked}
+
+  # ---------------------------------------------------------------------------
+  # Inbound: AI and Sift services call these
+  # ---------------------------------------------------------------------------
+  /api/integrations/niche-profiles:
+    post:
+      tags: [Integrations (called by AI and Sift services)]
+      summary: Deliver a niche profile for a campaign
+      security: [{integrationKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign_id, profile]
+              properties:
+                job_id: {type: string, format: uuid, description: The GrowthOS job id received in the request}
+                campaign_id: {type: string, format: uuid}
+                profile:
+                  type: object
+                  description: The Niche Intelligence JSON from section 7 of the spec. Stored as is.
+      responses:
+        '201':
+          description: Stored as DRAFT version N
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NicheProfile'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /api/integrations/prospects:
+    post:
+      tags: [Integrations (called by AI and Sift services)]
+      summary: Deliver prospects (max 100 per call). Duplicates by sift_id or email are reported, not errors.
+      security: [{integrationKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign_id, items]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign_id: {type: string, format: uuid}
+                items:
+                  type: array
+                  maxItems: 100
+                  items: {$ref: '#/components/schemas/ProspectInput'}
+      responses:
+        '207':
+          description: Per item result
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchResult'}
+
+  /api/integrations/email-tasks:
+    post:
+      tags: [Integrations (called by AI and Sift services)]
+      summary: Deliver prepared emails (max 100 per call). Tasks land in the pool unassigned. The engine assigns them.
+      security: [{integrationKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign_id, items]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign_id: {type: string, format: uuid}
+                items:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [external_ref, prospect_id, subject, body]
+                    properties:
+                      external_ref: {type: string, description: Your id for this item. Used to make retries safe.}
+                      prospect_id: {type: string, format: uuid, description: The GrowthOS prospect id sent in the request}
+                      subject: {type: string, maxLength: 300}
+                      body: {type: string}
+      responses:
+        '207':
+          description: Per item result
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchResult'}
+
+  /api/integrations/seo-tasks:
+    post:
+      tags: [Integrations (called by AI and Sift services)]
+      summary: Deliver prepared articles (max 100 per call)
+      security: [{integrationKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign_id, items]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign_id: {type: string, format: uuid}
+                items:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [external_ref, topic, primary_keyword, title, article]
+                    properties:
+                      external_ref: {type: string}
+                      topic: {type: string}
+                      primary_keyword: {type: string}
+                      secondary_keywords: {type: array, items: {type: string}}
+                      search_intent: {type: string}
+                      target_audience: {type: string}
+                      title: {type: string}
+                      article: {type: string}
+                      meta_title: {type: string, maxLength: 70}
+                      meta_description: {type: string, maxLength: 170}
+                      cta: {type: string}
+                      platform: {type: string, description: Suggested approved platform}
+      responses:
+        '207':
+          description: Per item result
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchResult'}
+
+  /api/integrations/lead-magnet-tasks:
+    post:
+      tags: [Integrations (called by AI and Sift services)]
+      summary: Deliver lead magnet opportunities with a prepared comment (max 100 per call)
+      security: [{integrationKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, campaign_id, items]
+              properties:
+                job_id: {type: string, format: uuid}
+                campaign_id: {type: string, format: uuid}
+                items:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [external_ref, platform, post_url, comment]
+                    properties:
+                      external_ref: {type: string}
+                      platform: {type: string}
+                      author: {type: string}
+                      post_url: {type: string, format: uri}
+                      post_text: {type: string}
+                      relevance_reason: {type: string}
+                      comment: {type: string}
+      responses:
+        '207':
+          description: Per item result
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BatchResult'}
+
+  /api/integrations/jobs/{id}/status:
+    post:
+      tags: [Integrations (called by AI and Sift services)]
+      summary: Report job progress. Call with COMPLETED when the last batch is delivered, or FAILED with an error.
+      security: [{integrationKey: []}]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: {type: string, enum: [RUNNING, COMPLETED, FAILED]}
+                external_job_id: {type: string}
+                error: {type: string}
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Job'}
+
+  # ---------------------------------------------------------------------------
+  # Internal: scheduler calls these. All are safe to run twice.
+  # ---------------------------------------------------------------------------
+  /api/internal/cron/{task}:
+    post:
+      tags: [Internal (called by the scheduler)]
+      summary: Run a scheduled task
+      description: |
+        - `generate-workloads`: expire stale tasks, create today's snapshots, assign from the pool, request the shortfall from the AI and Sift services.
+        - `backfill`: assign newly delivered tasks to workloads that are still short, request what is missing.
+        - `pipeline`: top up prospects and generation requests for each active campaign.
+        - `expire`: expire stale lead magnet tasks.
+        - `purge`: remove old email bodies and article text.
+      security: [{cronSecret: []}]
+      parameters:
+        - name: task
+          in: path
+          required: true
+          schema: {type: string, enum: [generate-workloads, backfill, pipeline, expire, purge]}
+      responses:
+        '200':
+          description: Summary of what was done
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+    integrationKey: {type: apiKey, in: header, name: X-Integration-Key}
+    cronSecret: {type: http, scheme: bearer}
+
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+    Cursor: {name: cursor, in: query, schema: {type: string}}
+    From: {name: from, in: query, schema: {type: string, format: date}}
+    To: {name: to, in: query, schema: {type: string, format: date}}
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Forbidden:
+      description: Not allowed for this role or account status
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    NotFound:
+      description: Not found, or not visible to the caller
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Conflict:
+      description: The current state does not allow this
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Invalid:
+      description: Validation failed
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, example: TASK_LOCKED}
+            message: {type: string}
+            details: {type: object, additionalProperties: true}
+
+    Role: {type: string, enum: [ADMIN, MANAGER, EMPLOYEE]}
+    UserStatus: {type: string, enum: [PENDING, ACTIVE, DISABLED]}
+    CampaignStatus: {type: string, enum: [DRAFT, ACTIVE, PAUSED, ARCHIVED]}
+    QualificationStatus: {type: string, enum: [QUALIFIED, REJECTED, NEEDS_REVIEW]}
+    EmailTaskStatus: {type: string, enum: [READY, REVIEWED, SENT, SKIPPED, INVALID, EXPIRED]}
+    SeoTaskStatus: {type: string, enum: [READY, REVIEWED, PUBLISHED, SKIPPED, INVALID, EXPIRED]}
+    LeadTaskStatus: {type: string, enum: [READY, REVIEWED, POSTED, SKIPPED, INVALID, EXPIRED]}
+
+    Profile:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        email: {type: string, format: email}
+        role: {$ref: '#/components/schemas/Role'}
+        status: {$ref: '#/components/schemas/UserStatus'}
+        department_id: {type: string, format: uuid, nullable: true}
+    SignupResult:
+      type: object
+      properties:
+        name: {type: string}
+        email: {type: string, format: email}
+        role: {type: string, enum: [EMPLOYEE]}
+        status: {type: string, enum: [PENDING]}
+        department_id: {type: string, nullable: true}
+        message: {type: string}
+    Department:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+
+    Campaign:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        niche: {type: string}
+        offer: {type: string}
+        location: {type: string}
+        objective: {type: string}
+        status: {$ref: '#/components/schemas/CampaignStatus'}
+        department_id: {type: string, format: uuid}
+        created_by: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+
+    Targets:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        campaign_id: {type: string, format: uuid, nullable: true}
+        email_daily_target: {type: integer}
+        seo_daily_target: {type: integer}
+        lead_magnet_daily_target: {type: integer}
+        workdays_per_month: {type: integer}
+        total_daily_tasks: {type: integer, readOnly: true, description: Calculated by the server}
+        monthly_total: {type: integer, readOnly: true, description: total_daily_tasks x workdays_per_month}
+        effective_from: {type: string, format: date}
+        updated_by: {type: string, format: uuid}
+        updated_at: {type: string, format: date-time}
+
+    NicheProfile:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        campaign_id: {type: string, format: uuid}
+        version: {type: integer}
+        status: {type: string, enum: [DRAFT, APPROVED, SUPERSEDED]}
+        profile: {type: object, additionalProperties: true}
+        approved_by: {type: string, format: uuid, nullable: true}
+        approved_at: {type: string, format: date-time, nullable: true}
+
+    Job:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        campaign_id: {type: string, format: uuid}
+        kind: {type: string, enum: [NICHE_ANALYSIS, PROSPECT_SEARCH, EMAIL_GENERATION, SEO_GENERATION, LEAD_MAGNET_GENERATION]}
+        status: {type: string, enum: [REQUESTED, ACCEPTED, RUNNING, COMPLETED, FAILED, CANCELLED]}
+        requested_count: {type: integer, nullable: true}
+        delivered_count: {type: integer}
+        error: {type: string, nullable: true}
+
+    ProspectInput:
+      type: object
+      required: [sift_id, organisation]
+      properties:
+        sift_id: {type: string}
+        organisation: {type: string}
+        contact_name: {type: string}
+        email: {type: string, format: email}
+        website: {type: string}
+        industry: {type: string}
+        location: {type: string}
+        qualification_status: {$ref: '#/components/schemas/QualificationStatus'}
+        qualification_reason: {type: string}
+    Prospect:
+      allOf:
+        - {$ref: '#/components/schemas/ProspectInput'}
+        - type: object
+          properties:
+            id: {type: string, format: uuid}
+            campaign_id: {type: string, format: uuid}
+
+    BatchResult:
+      type: object
+      properties:
+        accepted: {type: integer}
+        duplicates: {type: integer}
+        rejected: {type: integer}
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              external_ref: {type: string}
+              result: {type: string, enum: [CREATED, DUPLICATE, REJECTED]}
+              id: {type: string, format: uuid, nullable: true}
+              error: {type: string, nullable: true}
+
+    EvidenceInput:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [URL, TEXT, FILE]}
+        value: {type: string, description: URL or text. Required for URL and TEXT.}
+        storage_path: {type: string, description: 'Required for FILE. Comes from /api/evidence/upload-url'}
+
+    EmailTask:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        campaign_id: {type: string, format: uuid}
+        employee_id: {type: string, format: uuid, nullable: true}
+        prospect: {$ref: '#/components/schemas/Prospect'}
+        subject: {type: string}
+        body: {type: string, nullable: true, description: Null after the retention period}
+        status: {$ref: '#/components/schemas/EmailTaskStatus'}
+        skip_reason: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        reviewed_at: {type: string, format: date-time, nullable: true}
+        sent_at: {type: string, format: date-time, nullable: true}
+        locked: {type: boolean, description: True once sent}
+    SeoTask:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        campaign_id: {type: string, format: uuid}
+        employee_id: {type: string, format: uuid, nullable: true}
+        topic: {type: string}
+        primary_keyword: {type: string}
+        secondary_keywords: {type: array, items: {type: string}}
+        search_intent: {type: string, nullable: true}
+        target_audience: {type: string, nullable: true}
+        title: {type: string}
+        article: {type: string, nullable: true}
+        meta_title: {type: string, nullable: true}
+        meta_description: {type: string, nullable: true}
+        cta: {type: string, nullable: true}
+        platform: {type: string, nullable: true}
+        status: {$ref: '#/components/schemas/SeoTaskStatus'}
+        published_url: {type: string, nullable: true}
+        published_at: {type: string, format: date-time, nullable: true}
+        locked: {type: boolean}
+    LeadMagnetTask:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        campaign_id: {type: string, format: uuid}
+        employee_id: {type: string, format: uuid, nullable: true}
+        platform: {type: string}
+        author: {type: string, nullable: true}
+        post_url: {type: string}
+        post_text: {type: string, nullable: true}
+        relevance_reason: {type: string, nullable: true}
+        comment: {type: string}
+        status: {$ref: '#/components/schemas/LeadTaskStatus'}
+        evidence_url: {type: string, nullable: true}
+        posted_at: {type: string, format: date-time, nullable: true}
+        locked: {type: boolean}
+
+    WorkstreamProgress:
+      type: object
+      properties:
+        workstream: {type: string, enum: [EMAIL, SEO, LEAD_MAGNET]}
+        required: {type: integer, description: From today's snapshot}
+        prepared: {type: integer, description: Open tasks held plus tasks completed today}
+        completed: {type: integer}
+        carried_in: {type: integer}
+    TodaySummary:
+      type: object
+      properties:
+        date: {type: string, format: date}
+        campaign_id: {type: string, format: uuid, nullable: true}
+        workstreams:
+          type: array
+          items: {$ref: '#/components/schemas/WorkstreamProgress'}
+        total_required: {type: integer}
+        total_completed: {type: integer}
+        completion_pct: {type: number, description: 'Capped per workstream, one decimal'}
+
+    ReportRows:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              work_date: {type: string, format: date}
+              campaign_id: {type: string, format: uuid}
+              campaign_name: {type: string}
+              employee_id: {type: string, format: uuid}
+              employee_name: {type: string}
+              email_target: {type: integer}
+              seo_target: {type: integer}
+              lead_magnet_target: {type: integer}
+              total_target: {type: integer}
+              email_completed: {type: integer}
+              seo_completed: {type: integer}
+              lead_magnet_completed: {type: integer}
+              total_completed: {type: integer}
+              remaining: {type: integer}
+              completion_pct: {type: number}
+        totals:
+          type: object
+          properties:
+            total_target: {type: integer}
+            total_completed: {type: integer}
+            completion_pct: {type: number}
