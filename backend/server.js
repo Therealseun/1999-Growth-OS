@@ -3,18 +3,27 @@ import { createApp } from './app.js';
 import { closePool } from './lib/db.js';
 import { getConfig } from './lib/config.js';
 import { seedInitialAdmin } from './lib/initial-admin.js';
+import { checkBase } from './shared/db.js';
 
-let PORT;
+let config;
 try {
-  ({ PORT } = getConfig());
+  config = getConfig();
 } catch (err) {
   console.error(err.message);
   process.exit(1);
 }
+const { PORT } = config;
 try {
-  await seedInitialAdmin();
+  if (config.GROWTHOS_SCHEMA === 'shared') {
+    await checkBase();
+  } else {
+    await seedInitialAdmin();
+  }
 } catch (err) {
-  console.error(`Initial administrator setup failed: ${err.message}`);
+  const phase = config.GROWTHOS_SCHEMA === 'shared'
+    ? 'Shared database validation failed'
+    : 'Initial administrator setup failed';
+  console.error(`${phase}: ${err.message}`);
   await closePool();
   process.exit(1);
 }

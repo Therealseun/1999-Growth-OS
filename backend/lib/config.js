@@ -16,6 +16,7 @@ if (existsSync(envFile)) {
 
 // Empty strings in .env files count as "not set".
 const schema = z.object({
+  GROWTHOS_SCHEMA: z.enum(['foundation', 'shared']).default('foundation'),
   DATABASE_URL: z.string().min(1),
   DATABASE_SSL: z.enum(['verify', 'no-verify', 'off']).default('verify'),
   DATABASE_CA_CERT: z.string().optional(),

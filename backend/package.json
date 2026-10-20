@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node --watch server.js",
     "start": "node server.js",
+    "check:shared-db": "node scripts/check-shared-database.js",
     "test": "vitest run"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "vitest": "^5.0.5"
   }
 }

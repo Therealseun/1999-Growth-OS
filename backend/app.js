@@ -20,7 +20,9 @@ export function toUrlPath(routesDir, file) {
   return `/api/${segments.map((s) => s.replace(/^\[(.+)\]$/, ':$1')).join('/')}`.replace(/\/$/, '');
 }
 
-export async function createApp({ routesDir = path.join(import.meta.dirname, 'routes') } = {}) {
+export async function createApp(options = {}) {
+  const routesDir = options.routesDir
+    ?? path.join(import.meta.dirname, getConfig().GROWTHOS_SCHEMA === 'shared' ? 'shared' : '', 'routes');
   const app = new Hono();
 
   const origins = (getConfig().CORS_ORIGINS ?? '')
@@ -43,7 +45,9 @@ export async function createApp({ routesDir = path.join(import.meta.dirname, 'ro
   const files = [...routeFiles(routesDir)].sort();
   for (const file of files) {
     const urlPath = toUrlPath(routesDir, file);
-    const mod = await import(pathToFileURL(file).href);
+    const mod = options.loadRoute
+      ? await options.loadRoute(file.split(path.sep).join('/'))
+      : await import(pathToFileURL(file).href);
     for (const method of METHODS) {
       if (typeof mod[method] === 'function') {
         app.on(method, urlPath, (c) => mod[method](c.req.raw, { params: c.req.param() }));

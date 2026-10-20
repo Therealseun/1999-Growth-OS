@@ -26,6 +26,6 @@ export async function extensionReady() {
 export async function checkBase(db={query}) {
  const {rows}=await db.query("select table_name,column_name from information_schema.columns where table_schema='public' and table_name in ('profiles','campaigns','tasks','prospects','email_drafts','workload_targets')");
  const found=new Set(rows.map(r=>r.table_name+'.'+r.column_name));
- const required=['profiles.full_name','profiles.active','campaigns.target_audience','campaigns.owner_id','tasks.assigned_to','tasks.description','prospects.first_name','email_drafts.prospect_ids','workload_targets.daily_task_target'];
+ const required=['profiles.id','profiles.full_name','profiles.email','profiles.role','profiles.active','campaigns.id','campaigns.name','campaigns.niche','campaigns.target_audience','campaigns.objective','campaigns.status','campaigns.owner_id','tasks.id','tasks.assigned_to','tasks.status','prospects.id','prospects.first_name','prospects.last_name','prospects.email','prospects.company','prospects.campaign_id','prospects.status','email_drafts.prospect_ids'];
  if(required.some(k=>!found.has(k)))throw conflict('Database does not match the shared team schema. Do not run foundation migrations on it.','SHARED_SCHEMA_MISMATCH');
 }

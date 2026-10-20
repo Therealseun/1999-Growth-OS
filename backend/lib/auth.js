@@ -55,6 +55,22 @@ export function getBearerToken(request) {
 }
 
 export async function loadProfile(userId) {
+  if (getConfig().GROWTHOS_SCHEMA === 'shared') {
+    const { rows } = await query(
+      'select id, full_name, email, role, active from public.profiles where id = $1',
+      [userId],
+    );
+    const profile = rows[0];
+    return profile
+      ? {
+          ...profile,
+          name: profile.full_name,
+          status: profile.active ? 'ACTIVE' : 'DISABLED',
+          department_id: null,
+        }
+      : null;
+  }
+
   const { rows } = await query(
     'select id, name, email, role, status, department_id from profiles where id = $1',
     [userId],

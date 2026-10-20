@@ -9,11 +9,18 @@ function sslOption(cfg) {
   return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
 }
 
+function connectionString(cfg) {
+  const url = new URL(cfg.DATABASE_URL);
+  // pg-connection-string otherwise lets sslmode/sslrootcert from the URL replace our verified SSL options.
+  for (const key of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey']) url.searchParams.delete(key);
+  return url.toString();
+}
+
 export function getPool() {
   if (!globalThis.__growthosPool) {
     const cfg = getConfig();
     const pool = new pg.Pool({
-      connectionString: cfg.DATABASE_URL,
+      connectionString: connectionString(cfg),
       max: cfg.DATABASE_POOL_MAX,
       ssl: sslOption(cfg),
       idleTimeoutMillis: 10_000,

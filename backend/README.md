@@ -1,7 +1,7 @@
 # GrowthOS backend
 
-A standalone Node API server. It lives in its own `backend/` folder beside the frontend and shares nothing with it
-except the HTTP contract in `docs/openapi.yaml`. Design notes are in `docs/design.md`.
+A Node API server. The default `foundation` mode is a standalone backend for a new Supabase project. The `shared` mode
+adds only the AI service to an existing GrowthOS database while retaining its current `public` schema and user management.
 
 ```
 repo/
@@ -35,23 +35,40 @@ npm install
 1. Copy `.env.example` to `.env` and fill it in. Where each value comes from:
    - `DATABASE_URL`: Supabase dashboard, Connect, Transaction pooler (port 6543), with the database password filled in.
    - `SUPABASE_URL`, `SUPABASE_ANON_KEY`: Project Settings, API.
-   - `SUPABASE_SERVICE_ROLE_KEY`: Project Settings, API; required to create the initial administrator.
+   - `SUPABASE_SERVICE_ROLE_KEY`: Project Settings, API; required for administrator bootstrap in `foundation` mode.
+   - `GROWTHOS_SCHEMA`: use `foundation` for a new project (default), or `shared` to add the AI service to an existing GrowthOS project.
    - `EVIDENCE_BUCKET`: private Supabase Storage bucket for task evidence (defaults to `evidence`). Configure the bucket with a 5 MiB file-size limit and allow only PNG, JPEG, WebP, and PDF files; the backend checks uploaded size and content before attaching evidence.
-   - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: credentials for the initial administrator. The account is created and activated at backend startup if it does not exist.
+   - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: credentials for the initial administrator in `foundation` mode. The account is created and activated at backend startup if it does not exist.
    - `CRON_SECRET`: run `openssl rand -hex 32`, or type any random 40 characters.
    - `CORS_ORIGINS`: the frontend address, `http://localhost:3000` for local work.
    - `DATABASE_SSL`: leave `verify`. On a certificate error, paste the CA from Database, SSL Configuration into `DATABASE_CA_CERT`.
    - If Supabase Auth reports `self-signed certificate in certificate chain`, configure Node to trust your network's verified root CA. In PowerShell, set `$env:NODE_EXTRA_CA_CERTS = 'C:\path\to\trusted-root-ca.pem'` before starting `npm run dev` or nodemon. Keep certificate verification enabled; `DATABASE_CA_CERT` only configures PostgreSQL, not HTTPS calls to Supabase.
    - On Render, the startup log identifies whether the failed certificate check was PostgreSQL or Supabase Auth. For PostgreSQL, set `DATABASE_CA_CERT` to the PEM CA certificate from your database provider. For Supabase Auth, add the verified CA as a Render Secret File and set `NODE_EXTRA_CA_CERTS` to that file's mounted path. Do not disable TLS certificate verification.
-2. **Migration.** Supabase dashboard, SQL Editor, paste all of `supabase/migrations/0001_init.sql`, Run. Do not run
-   `00_supabase_stub.sql`, it is only for local tests. Check with `select count(*) from app_settings;` which must return 5.
+2. **Migration.** Choose exactly one mode:
+   - **New project (`foundation`).** Use `supabase/migrations/0001_init.sql` only on a new, empty Supabase project. Do not run
+     `00_supabase_stub.sql`; it is only for local tests.
+   - **Existing GrowthOS project (`shared`).** Set `GROWTHOS_SCHEMA=shared`, run `npm run check:shared-db`, then review and
+     apply `shared/migrations/0001_ai_extension.sql` once. It creates isolated `growthos_ai` tables and does not alter existing
+     `public` tables, records, policies, functions, or triggers. Do not run `supabase/migrations/0001_init.sql` or
+     `supabase/migrations/0002_frontend_feature_data.sql` against the existing project.
 3. **Token signing.** Project Settings, JWT Keys. Leave `SUPABASE_JWT_SECRET` empty on projects with asymmetric signing keys.
    Set it only for a legacy project that still uses a shared secret.
-4. **Start.** `npm run dev` or `npm start`; the backend loads `backend/.env` when present. Then open http://localhost:4000/api/health. Expect
-   `{"ok":true,"database":true,"schema":true,...}`. A bad `.env` stops the server at startup and names the variable.
-5. **First admin.** Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`, then start the backend. The configured account is created in Supabase Auth and activated as an administrator automatically. Keep the service-role key and admin password private.
+4. **Start.** `npm run dev` or `npm start`; the backend loads `backend/.env` when present. In `foundation` mode,
+   `/api/health` reports database and schema readiness. In `shared` mode, it also reports whether the AI extension migration
+   is installed. A bad `.env` stops the server at startup and names the variable.
+5. **First admin.** In `foundation` mode, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`; the configured account is created in Supabase Auth and activated automatically. In `shared` mode, the existing app remains responsible for profiles and administrators; this backend does not create or promote users. Keep the service-role key and admin password private.
 
 In production, the host supplies real environment variables and starts the server with `npm start` (without requiring a `.env` file).
+
+### Existing database mode
+
+`shared` mode serves the AI routes under `/api/ai/*` and `/api/health`; it does not mount the standalone foundation routes.
+Authentication reads the existing `profiles.full_name`, `profiles.role`, and `profiles.active` fields. Campaigns, prospects,
+tasks, and other existing records stay in their current `public` tables.
+
+AI research workflows can use this schema. Generated task requests also require `public.workload_targets` with employee daily
+and weekly targets. If that table or the employee target is missing, the API rejects generation with `TARGET_REQUIRED` rather
+than bypassing workload limits. The backend does not create or modify that public table automatically.
 
 ## How the frontend calls it
 

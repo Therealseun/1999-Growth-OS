@@ -42,6 +42,8 @@ export async function enqueue(session,campaignId,input) {
    // Serialise reservations across all campaigns for this employee.
    const {rows:[e]}=await db.query('select * from public.profiles where id=$1 for update',[input.employee_id]);
    if(!e?.active||e.role!=='EMPLOYEE')throw invalid('Select an active employee.');
+   const {rows:[targetTable]}=await db.query("select to_regclass('public.workload_targets') is not null as installed");
+   if(!targetTable.installed)throw conflict('AI task generation requires the existing employee workload target to be configured.','TARGET_REQUIRED');
    const {rows:[t]}=await db.query('select * from public.workload_targets where role=$1',[e.role]);
    if(!t)throw conflict('Ask your administrator to configure the existing employee workload target.','TARGET_REQUIRED');
    const {rows:[n]}=await db.query(`select count(*) filter(where status<>'COMPLETED')::int as open,
