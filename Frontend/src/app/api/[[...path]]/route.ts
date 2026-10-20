@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 export const dynamic='force-dynamic';
 type Context={params:Promise<{path?:string[]}>};
 async function proxy(request:NextRequest,context:Context) {
-  const origin=process.env.GROWTHOS_BACKEND_URL || (process.env.NODE_ENV==='development'?'http://127.0.0.1:4000':'');
+  const origin=process.env.GROWTHOS_BACKEND_URL || (process.env.NODE_ENV==='development'?'http://127.0.0.1:4000':'https://one999-growth-os.onrender.com');
   if(!origin)return Response.json({error:{code:'BACKEND_NOT_CONFIGURED',message:'The application backend is not configured.'}},{status:503});
   const {path=[]}=await context.params;
   const target=new URL('/api/'+path.map(encodeURIComponent).join('/'),origin);
