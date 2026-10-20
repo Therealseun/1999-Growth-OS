@@ -39,7 +39,7 @@ async function approve(){const j=await job('NICHE_ANALYSIS');await tick();const 
 async function candidate(email=null){const j=await job('PROSPECT_SEARCH');const record={organisation:'School',contact_name:null,email,website:'https://example.test',source_url:'https://example.test/contact',research_provider:'sift',provider_record_id:randomUUID()};const {rows:[c]}=await query(`insert into growthos_ai.candidates(campaign_id,job_id,record,research_provider,provider_record_id,qualification) values($1,$2,$3,'sift',$4,$5) returning *`,[campaignId,j.id,record,record.provider_record_id,{status:'NEEDS_REVIEW',reason:'Check contact'}]);await cancelJob(admin,j.id);return c;}
 async function signed(session){const jwt=await new SignJWT({}).setProtectedHeader({alg:'HS256'}).setSubject(session.userId).setIssuer('https://test.supabase.co/auth/v1').setAudience('authenticated').setExpirationTime('1h').sign(new TextEncoder().encode(process.env.SUPABASE_JWT_SECRET));return {Authorization:`Bearer ${jwt}`,'Content-Type':'application/json'};}
 beforeAll(async()=>{
- Object.assign(process.env,{GROWTHOS_SCHEMA:'shared',DATABASE_URL:'postgres://unused',SUPABASE_URL:'https://test.supabase.co',SUPABASE_ANON_KEY:'test',SUPABASE_JWT_SECRET:'fixture-secret-long-enough',CRON_SECRET:'x'.repeat(40),AI_ENABLED:'false'});resetConfigForTests();
+ Object.assign(process.env,{GROWTHOS_SCHEMA:'shared',ADMIN_EMAIL:'admin@example.test',DATABASE_URL:'postgres://unused',SUPABASE_URL:'https://test.supabase.co',SUPABASE_ANON_KEY:'test',SUPABASE_JWT_SECRET:'fixture-secret-long-enough',CRON_SECRET:'x'.repeat(40),AI_ENABLED:'false'});resetConfigForTests();
  memory.db=new PGlite();await memory.db.exec(readFileSync(new URL('./fixtures/live-schema.sql',import.meta.url),'utf8'));
  beforeCatalog=await catalog();
  // Seed an existing record before installation to verify preservation too.
@@ -202,6 +202,7 @@ describe('Apify task selection in the shared workflow',()=>{
    expect(apifyCatalog().connectors).toHaveLength(3);
   });
  });
+
  it('pins the selected task and field mapping for a queued job across configuration changes',async()=>{
   await approve();await usingApify(async({path,settings,config})=>{
    const j=await job('PROSPECT_SEARCH',{research_provider:'apify',apify_connector:'maps'});
@@ -219,6 +220,7 @@ describe('Apify task selection in the shared workflow',()=>{
    }finally{http.mockRestore();}
   });
  });
+
  it('retains the chosen Apify fallback when Sift is unavailable',async()=>{
   await approve();await usingApify(async({config})=>{
    const j=await job('PROSPECT_SEARCH',{research_provider:'sift',apify_connector:'alternate'});
@@ -236,5 +238,14 @@ describe('Apify task selection in the shared workflow',()=>{
    await query("update growthos_ai.jobs set status='FAILED',state=state || $2::jsonb where id=$1",[j.id,{research:{starting:true}}]);
    await expect(retryJob(admin,j.id,{research_provider:'apify',apify_connector:'maps'})).rejects.toMatchObject({code:'RESEARCH_RECONCILIATION_REQUIRED'});
   });
+ });
+});
+
+describe('shared database without workload targets',()=>{
+ it('validates the existing schema and rejects generation explicitly',async()=>{
+  await approve();
+  await memory.db.exec('drop table public.workload_targets cascade');
+  await expect(checkBase()).resolves.toBeUndefined();
+  await expect(job('SEO_GENERATION')).rejects.toMatchObject({code:'TARGET_REQUIRED'});
  });
 });

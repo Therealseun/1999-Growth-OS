@@ -27,13 +27,29 @@ const schema = z.object({
   EVIDENCE_BUCKET: z.string().trim().min(1).default('evidence'),
   SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
   SUPABASE_JWT_SECRET: z.string().optional(),
-  ADMIN_EMAIL: z.string().trim().email().optional(),
-  ADMIN_PASSWORD: z.string().min(8).max(72).optional(),
+  ADMIN_EMAIL: z.string().trim().optional(),
+  ADMIN_PASSWORD: z.string().optional(),
   CRON_SECRET: z.string().min(32, 'must be at least 32 characters'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CORS_ORIGINS: z.string().optional(),
 }).superRefine((config, context) => {
-  if (Boolean(config.ADMIN_EMAIL) !== Boolean(config.ADMIN_PASSWORD)) {
+  if (config.GROWTHOS_SCHEMA !== 'shared' && config.ADMIN_EMAIL && !z.string().email().safeParse(config.ADMIN_EMAIL).success) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ADMIN_EMAIL'],
+      message: 'must be a valid email address',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared' && config.ADMIN_PASSWORD
+      && (config.ADMIN_PASSWORD.length < 8 || config.ADMIN_PASSWORD.length > 72)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ADMIN_PASSWORD'],
+      message: 'must be between 8 and 72 characters',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared'
+      && Boolean(config.ADMIN_EMAIL) !== Boolean(config.ADMIN_PASSWORD)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['ADMIN_EMAIL'],
