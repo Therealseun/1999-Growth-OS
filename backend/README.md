@@ -46,11 +46,11 @@ npm install
    `00_supabase_stub.sql`, it is only for local tests. Check with `select count(*) from app_settings;` which must return 5.
 3. **Token signing.** Project Settings, JWT Keys. Leave `SUPABASE_JWT_SECRET` empty on projects with asymmetric signing keys.
    Set it only for a legacy project that still uses a shared secret.
-4. **Start.** `npm run dev` or `npm start`; both load `backend/.env`. Then open http://localhost:4000/api/health. Expect
+4. **Start.** `npm run dev` or `npm start`; the backend loads `backend/.env` when present. Then open http://localhost:4000/api/health. Expect
    `{"ok":true,"database":true,"schema":true,...}`. A bad `.env` stops the server at startup and names the variable.
 5. **First admin.** Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`, then start the backend. The configured account is created in Supabase Auth and activated as an administrator automatically. Keep the service-role key and admin password private.
 
-In production, the host supplies real environment variables and starts the server with `node server.js` (without requiring a `.env` file).
+In production, the host supplies real environment variables and starts the server with `npm start` (without requiring a `.env` file).
 
 ## How the frontend calls it
 
@@ -95,8 +95,11 @@ Use `TEST_PG_ADMIN_URL=postgres://user:pass@host:port/postgres` for a different 
 
 ## Hosting
 
-This is a long running Node process, so it needs somewhere that runs Node and stays reachable. Hosting is not decided yet.
-The scheduler (see `docs/design.md`, section 3) will call `/api/internal/cron/*` on this server's address.
+This is a long running Node process, so it needs somewhere that runs Node and stays reachable. For Render, set the service
+root directory to `backend`, the build command to `npm ci`, and the start command to `npm start`. There is no backend build
+step: the API runs directly from its JavaScript files. Do not use `npm build` or `npm run build`; this package has no build
+script. Configure the required environment variables in Render. The scheduler (see `docs/design.md`, section 3) will call
+`/api/internal/cron/*` on this server's address.
 
 ## Not verified yet
 
