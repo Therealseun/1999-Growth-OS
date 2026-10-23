@@ -39,6 +39,7 @@ npm install
    - `GROWTHOS_SCHEMA`: use `foundation` for a new project (default), or `shared` to add the AI service to an existing GrowthOS project.
    - `EVIDENCE_BUCKET`: private Supabase Storage bucket for task evidence (defaults to `evidence`). Configure the bucket with a 5 MiB file-size limit and allow only PNG, JPEG, WebP, and PDF files; the backend checks uploaded size and content before attaching evidence.
    - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: credentials for the initial administrator in `foundation` mode. The account is created and activated at backend startup if it does not exist.
+   - `FRONTEND_URL`: frontend origin used as the signup verification redirect (for example, `https://1999-growth-os.vercel.app`). Allow the resulting `/auth/login` URL in Supabase Auth's redirect URL allowlist.
    - `CRON_SECRET`: run `openssl rand -hex 32`, or type any random 40 characters.
    - `CORS_ORIGINS`: the frontend address, `http://localhost:3000` for local work.
    - `DATABASE_SSL`: leave `verify`. On a certificate error, paste the CA from Database, SSL Configuration into `DATABASE_CA_CERT`.
@@ -56,7 +57,7 @@ npm install
 4. **Start.** `npm run dev` or `npm start`; the backend loads `backend/.env` when present. In `foundation` mode,
    `/api/health` reports database and schema readiness. In `shared` mode, it also reports whether the AI extension migration
    is installed. A bad `.env` stops the server at startup and names the variable.
-5. **First admin.** In `foundation` mode, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`; the configured account is created in Supabase Auth and activated automatically. In `shared` mode, the existing app remains responsible for profiles and administrators; this backend does not create or promote users. Keep the service-role key and admin password private.
+5. **First admin.** In `foundation` mode, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`; the configured account is created in Supabase Auth and activated automatically. If it already exists and the password needs to be reset to `ADMIN_PASSWORD`, run `npm run bootstrap:admin` from the repository root; this explicit command updates the password, while normal server startups do not. In `shared` mode, the existing app remains responsible for profiles and administrators; this backend does not create or promote users. Keep the service-role key and admin password private.
 
 In production, the host supplies real environment variables and starts the server with `npm start` (without requiring a `.env` file).
 

@@ -29,6 +29,7 @@ const schema = z.object({
   SUPABASE_JWT_SECRET: z.string().optional(),
   ADMIN_EMAIL: z.string().trim().optional(),
   ADMIN_PASSWORD: z.string().optional(),
+  FRONTEND_URL: z.string().trim().url().optional(),
   CRON_SECRET: z.string().min(32, 'must be at least 32 characters'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CORS_ORIGINS: z.string().optional(),
@@ -54,6 +55,13 @@ const schema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['ADMIN_EMAIL'],
       message: 'ADMIN_EMAIL and ADMIN_PASSWORD must be set together',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared' && !config.FRONTEND_URL) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['FRONTEND_URL'],
+      message: 'must be set to the frontend origin for signup verification redirects',
     });
   }
 });

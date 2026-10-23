@@ -79,7 +79,10 @@ describe('POST /api/auth/signup', () => {
     expect(fake.signUp).toHaveBeenCalledWith({
       email: 'sarah@example.com',
       password: 'longenough1',
-      options: { data: { name: 'Sarah' } },
+      options: {
+        data: { name: 'Sarah' },
+        emailRedirectTo: new URL('/auth/login', process.env.FRONTEND_URL).toString(),
+      },
     });
   });
 

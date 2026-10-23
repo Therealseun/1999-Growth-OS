@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ApiError, invalid } from '../../../lib/errors.js';
 import { created, route } from '../../../lib/http.js';
+import { getConfig } from '../../../lib/config.js';
 import { authClient } from '../../../lib/supabase.js';
 
 const body = z.object({
@@ -18,7 +19,10 @@ export const POST = route({ auth: 'none', body }, async ({ body: input, requestI
   const { error } = await authClient().auth.signUp({
     email: input.email,
     password: input.password,
-    options: { data: { name: input.name } },
+    options: {
+      data: { name: input.name },
+      emailRedirectTo: new URL('/auth/login', getConfig().FRONTEND_URL).toString(),
+    },
   });
 
   if (error && error.code !== 'user_already_exists') {

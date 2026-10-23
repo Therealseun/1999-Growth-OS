@@ -2,7 +2,7 @@ import { query, withTransaction } from './db.js';
 import { getConfig } from './config.js';
 import { authAdminClient } from './supabase.js';
 
-export async function seedInitialAdmin() {
+export async function seedInitialAdmin({ syncPassword = false } = {}) {
   let phase = 'loading configuration';
   try {
     const { ADMIN_EMAIL, ADMIN_PASSWORD } = getConfig();
@@ -46,7 +46,7 @@ export async function seedInitialAdmin() {
     }
 
     phase = 'promoting the initial administrator in PostgreSQL';
-    await withTransaction(null, async (client) => {
+    const adminId = await withTransaction(null, async (client) => {
       await client.query('lock table profiles in share row exclusive mode');
       const { rows: [profile] } = await client.query(
         'select id, role, status from profiles where lower(email) = $1 for update',
@@ -72,7 +72,18 @@ export async function seedInitialAdmin() {
           [profile.id],
         );
       }
+      return profile.id;
     });
+
+    if (syncPassword) {
+      phase = 'synchronizing the initial administrator password in Supabase Auth';
+      const { error } = await authAdminClient().auth.admin.updateUserById(adminId, {
+        password: ADMIN_PASSWORD,
+      });
+      if (error) {
+        throw new Error(`Could not update initial administrator password: ${error.message}`);
+      }
+    }
 
     return true;
   } catch (err) {
