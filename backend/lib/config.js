@@ -29,7 +29,10 @@ const schema = z.object({
   SUPABASE_JWT_SECRET: z.string().optional(),
   ADMIN_EMAIL: z.string().trim().optional(),
   ADMIN_PASSWORD: z.string().optional(),
-  FRONTEND_URL: z.string().trim().url().optional(),
+  MANAGER_EMAIL: z.string().trim().optional(),
+  MANAGER_PASSWORD: z.string().optional(),
+  MANAGER_DEPARTMENT_ID: z.string().optional(),
+  FRONTEND_URL: z.string().trim().url().default('https://1999-growth-os.vercel.app'),
   CRON_SECRET: z.string().min(32, 'must be at least 32 characters'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CORS_ORIGINS: z.string().optional(),
@@ -57,11 +60,52 @@ const schema = z.object({
       message: 'ADMIN_EMAIL and ADMIN_PASSWORD must be set together',
     });
   }
-  if (config.GROWTHOS_SCHEMA !== 'shared' && !config.FRONTEND_URL) {
+  if (config.GROWTHOS_SCHEMA !== 'shared' && config.MANAGER_EMAIL
+      && !z.string().email().safeParse(config.MANAGER_EMAIL).success) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['FRONTEND_URL'],
-      message: 'must be set to the frontend origin for signup verification redirects',
+      path: ['MANAGER_EMAIL'],
+      message: 'must be a valid email address',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared' && config.MANAGER_PASSWORD
+      && (config.MANAGER_PASSWORD.length < 8 || config.MANAGER_PASSWORD.length > 72)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MANAGER_PASSWORD'],
+      message: 'must be between 8 and 72 characters',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared'
+      && Boolean(config.MANAGER_EMAIL) !== Boolean(config.MANAGER_PASSWORD)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MANAGER_EMAIL'],
+      message: 'MANAGER_EMAIL and MANAGER_PASSWORD must be set together',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared' && config.MANAGER_DEPARTMENT_ID
+      && !z.string().uuid().safeParse(config.MANAGER_DEPARTMENT_ID).success) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MANAGER_DEPARTMENT_ID'],
+      message: 'must be a valid department UUID',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared'
+      && Boolean(config.MANAGER_EMAIL) !== Boolean(config.MANAGER_DEPARTMENT_ID)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MANAGER_DEPARTMENT_ID'],
+      message: 'must be set together with MANAGER_EMAIL',
+    });
+  }
+  if (config.GROWTHOS_SCHEMA !== 'shared' && config.ADMIN_EMAIL && config.MANAGER_EMAIL
+      && config.ADMIN_EMAIL.toLowerCase() === config.MANAGER_EMAIL.toLowerCase()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MANAGER_EMAIL'],
+      message: 'must differ from ADMIN_EMAIL',
     });
   }
 });

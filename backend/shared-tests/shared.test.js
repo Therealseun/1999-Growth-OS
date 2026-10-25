@@ -6,10 +6,12 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 const memory=vi.hoisted(()=>({db:null}));
+const fakeAuth=vi.hoisted(()=>({signInWithPassword:vi.fn(),signUp:vi.fn(),refreshSession:vi.fn()}));
 vi.mock('../lib/db.js',()=>{
  const wrap=db=>({query:async(sql,args)=>{const r=await db.query(sql,args);return {...r,rowCount:r.rows.length||r.affectedRows||0};}});
  return {query:(...args)=>wrap(memory.db).query(...args),withTransaction:(actor,fn)=>memory.db.transaction(tx=>fn(wrap(tx))),closePool:async()=>{}};
 });
+vi.mock('../lib/supabase.js',()=>({authClient:()=>({auth:fakeAuth})}));
 import { query,withTransaction,asUser,checkBase } from '../shared/db.js';
 import { enqueue,claimJob,checkpoint,getJob,retryJob } from '../shared/jobs.js';
 import { saveSettings,approveProfile,importCandidate,cancelJob,recoverJob } from '../shared/service.js';
@@ -39,7 +41,7 @@ async function approve(){const j=await job('NICHE_ANALYSIS');await tick();const 
 async function candidate(email=null){const j=await job('PROSPECT_SEARCH');const record={organisation:'School',contact_name:null,email,website:'https://example.test',source_url:'https://example.test/contact',research_provider:'sift',provider_record_id:randomUUID()};const {rows:[c]}=await query(`insert into growthos_ai.candidates(campaign_id,job_id,record,research_provider,provider_record_id,qualification) values($1,$2,$3,'sift',$4,$5) returning *`,[campaignId,j.id,record,record.provider_record_id,{status:'NEEDS_REVIEW',reason:'Check contact'}]);await cancelJob(admin,j.id);return c;}
 async function signed(session){const jwt=await new SignJWT({}).setProtectedHeader({alg:'HS256'}).setSubject(session.userId).setIssuer('https://test.supabase.co/auth/v1').setAudience('authenticated').setExpirationTime('1h').sign(new TextEncoder().encode(process.env.SUPABASE_JWT_SECRET));return {Authorization:`Bearer ${jwt}`,'Content-Type':'application/json'};}
 beforeAll(async()=>{
- Object.assign(process.env,{GROWTHOS_SCHEMA:'shared',ADMIN_EMAIL:'admin@example.test',DATABASE_URL:'postgres://unused',SUPABASE_URL:'https://test.supabase.co',SUPABASE_ANON_KEY:'test',SUPABASE_JWT_SECRET:'fixture-secret-long-enough',CRON_SECRET:'x'.repeat(40),AI_ENABLED:'false'});resetConfigForTests();
+ Object.assign(process.env,{GROWTHOS_SCHEMA:'shared',ADMIN_EMAIL:'admin@example.test',DATABASE_URL:'postgres://unused',SUPABASE_URL:'https://test.supabase.co',SUPABASE_ANON_KEY:'test',SUPABASE_JWT_SECRET:'fixture-secret-long-enough',FRONTEND_URL:'https://growthos.example.test',CRON_SECRET:'x'.repeat(40),AI_ENABLED:'false'});resetConfigForTests();
  memory.db=new PGlite();await memory.db.exec(readFileSync(new URL('./fixtures/live-schema.sql',import.meta.url),'utf8'));
  beforeCatalog=await catalog();
  // Seed an existing record before installation to verify preservation too.
@@ -53,6 +55,7 @@ beforeAll(async()=>{
 });
 beforeEach(async()=>{
  model.generate.mockClear();await memory.db.exec('truncate auth.users,public.profiles,public.workload_targets cascade');
+ fakeAuth.signInWithPassword.mockReset();fakeAuth.signUp.mockReset();fakeAuth.refreshSession.mockReset();
  admin=await user('ADMIN');employee=await user('EMPLOYEE');campaignId=randomUUID();
  await query("insert into public.campaigns(id,name,niche,target_audience,objective,status,owner_id) values($1,'Schools','Education','Owners','Conversations','ACTIVE',$2)",[campaignId,admin.userId]);
  await query("insert into public.workload_targets(role,daily_task_target,weekly_task_target) values('EMPLOYEE',10,50)");
@@ -61,6 +64,34 @@ beforeEach(async()=>{
 afterAll(async()=>{await memory.db?.close();});
 describe('shared team database compatibility',()=>{
  it('adds only isolated storage; preserves every exported public column, policy, function, trigger and constraint',async()=>{expect(afterCatalog).toEqual(beforeCatalog);await checkBase();await expect(withTransaction(employee.userId,db=>asUser(db,employee.userId,d=>d.query('select * from growthos_ai.jobs')))).rejects.toThrow(/permission denied/);});
+ it('mounts the shared login endpoint and authenticates against the existing Supabase profile',async()=>{
+  fakeAuth.signInWithPassword.mockResolvedValue({data:{user:{id:admin.userId},session:{access_token:'access',refresh_token:'refresh',expires_in:3600}},error:null});
+  const response=await app.request('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:' ADMIN@example.test ',password:'existing-password'})});
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({access_token:'access',refresh_token:'refresh',profile:{id:admin.userId,email:`${admin.userId}@example.test`,name:'ADMIN',role:'ADMIN',status:'ACTIVE'}});
+  expect(fakeAuth.signInWithPassword).toHaveBeenCalledWith({email:'admin@example.test',password:'existing-password'});
+  fakeAuth.signInWithPassword.mockResolvedValueOnce({data:{},error:{status:400,code:'email_not_confirmed'}});
+  const unconfirmed=await app.request('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@example.test',password:'existing-password'})});
+  expect(unconfirmed.status).toBe(403);
+  expect(await unconfirmed.json()).toMatchObject({error:{code:'EMAIL_NOT_CONFIRMED'}});
+ });
+ it('mounts shared signup and sends verification to the configured frontend',async()=>{
+  fakeAuth.signUp.mockResolvedValue({data:{},error:null});
+  const response=await app.request('/api/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'  New Teammate ',email:'New@Example.test ',password:'valid-password',role:'ADMIN'})});
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({name:'New Teammate',email:'new@example.test',message:'Account request received. Check your email for a verification link. Your organization manages account access.'});
+  expect(fakeAuth.signUp).toHaveBeenCalledWith({email:'new@example.test',password:'valid-password',options:{data:{name:'New Teammate'},emailRedirectTo:'https://growthos.example.test/auth/login'}});
+ });
+ it('mounts shared session refresh and current-user routes',async()=>{
+  const token=await signed(admin);
+  const current=await app.request('/api/auth/me',{headers:token});
+  expect(current.status).toBe(200);
+  expect(await current.json()).toMatchObject({id:admin.userId,name:'ADMIN',role:'ADMIN',status:'ACTIVE'});
+  fakeAuth.refreshSession.mockResolvedValue({data:{user:{id:admin.userId},session:{access_token:'access2',refresh_token:'refresh2',expires_in:3600}},error:null});
+  const refreshed=await app.request('/api/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:'old-refresh'})});
+  expect(refreshed.status).toBe(200);
+  expect(await refreshed.json()).toMatchObject({access_token:'access2',refresh_token:'refresh2'});
+ });
  it('mounts shared routes, validates identity and refuses inactive/employee callers',async()=>{
   expect((await app.request('/api/health')).status).toBe(200);
   expect((await app.request('/api/workspace',{headers:await signed(admin)})).status).toBe(404);

@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
 import { closePool } from './lib/db.js';
 import { getConfig } from './lib/config.js';
-import { seedInitialAdmin } from './lib/initial-admin.js';
+import { seedInitialAccounts } from './lib/initial-admin.js';
 import { checkBase } from './shared/db.js';
 
 let config;
@@ -17,12 +17,12 @@ try {
   if (config.GROWTHOS_SCHEMA === 'shared') {
     await checkBase();
   } else {
-    await seedInitialAdmin();
+    await seedInitialAccounts();
   }
 } catch (err) {
   const phase = config.GROWTHOS_SCHEMA === 'shared'
     ? 'Shared database validation failed'
-    : 'Initial administrator setup failed';
+    : 'Initial account setup failed';
   console.error(`${phase}: ${err.message}`);
   await closePool();
   process.exit(1);

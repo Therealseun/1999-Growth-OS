@@ -39,7 +39,9 @@ npm install
    - `GROWTHOS_SCHEMA`: use `foundation` for a new project (default), or `shared` to add the AI service to an existing GrowthOS project.
    - `EVIDENCE_BUCKET`: private Supabase Storage bucket for task evidence (defaults to `evidence`). Configure the bucket with a 5 MiB file-size limit and allow only PNG, JPEG, WebP, and PDF files; the backend checks uploaded size and content before attaching evidence.
    - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: credentials for the initial administrator in `foundation` mode. The account is created and activated at backend startup if it does not exist.
-   - `FRONTEND_URL`: frontend origin used as the signup verification redirect (for example, `https://1999-growth-os.vercel.app`). Allow the resulting `/auth/login` URL in Supabase Auth's redirect URL allowlist.
+   - `MANAGER_EMAIL`, `MANAGER_PASSWORD`: credentials for the initial manager in `foundation` mode. The account is created and activated at backend startup if it does not exist.
+   - `MANAGER_DEPARTMENT_ID`: UUID of an existing department to assign to the initial manager. Required with the manager credentials.
+   - `FRONTEND_URL`: frontend origin used as the signup verification redirect (defaults to `https://1999-growth-os.vercel.app`). Set this in the deployed backend environment if needed, and allow the resulting `/auth/login` URL in Supabase Auth's redirect URL allowlist. In Supabase, set **Authentication → URL Configuration → Site URL** to `https://1999-growth-os.vercel.app` and add `https://1999-growth-os.vercel.app/auth/login` to **Redirect URLs**. If using a custom confirmation email template, its link should use `{{ .ConfirmationURL }}`, not `{{ .SiteURL }}`.
    - `CRON_SECRET`: run `openssl rand -hex 32`, or type any random 40 characters.
    - `CORS_ORIGINS`: the frontend address, `http://localhost:3000` for local work.
    - `DATABASE_SSL`: leave `verify`. On a certificate error, paste the CA from Database, SSL Configuration into `DATABASE_CA_CERT`.
@@ -57,15 +59,15 @@ npm install
 4. **Start.** `npm run dev` or `npm start`; the backend loads `backend/.env` when present. In `foundation` mode,
    `/api/health` reports database and schema readiness. In `shared` mode, it also reports whether the AI extension migration
    is installed. A bad `.env` stops the server at startup and names the variable.
-5. **First admin.** In `foundation` mode, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`; the configured account is created in Supabase Auth and activated automatically. If it already exists and the password needs to be reset to `ADMIN_PASSWORD`, run `npm run bootstrap:admin` from the repository root; this explicit command updates the password, while normal server startups do not. In `shared` mode, the existing app remains responsible for profiles and administrators; this backend does not create or promote users. Keep the service-role key and admin password private.
+5. **Initial accounts.** In `foundation` mode, set `ADMIN_EMAIL` and `ADMIN_PASSWORD`, and `MANAGER_EMAIL`, `MANAGER_PASSWORD`, and `MANAGER_DEPARTMENT_ID` in `backend/.env`; each configured account is created in Supabase Auth and activated with its corresponding role at backend startup. The manager department UUID must belong to an existing department. Use distinct email addresses and keep the service-role key and account passwords private. If a configured password needs to be reset, run `npm run bootstrap:admin` from the repository root; this explicit command synchronizes passwords for the configured initial accounts, while normal server startups do not. In `shared` mode, the existing app remains responsible for profiles and role assignment; this backend does not create or promote users.
 
 In production, the host supplies real environment variables and starts the server with `npm start` (without requiring a `.env` file).
 
 ### Existing database mode
 
-`shared` mode serves the AI routes under `/api/ai/*` and `/api/health`; it does not mount the standalone foundation routes.
-Authentication reads the existing `profiles.full_name`, `profiles.role`, and `profiles.active` fields. Campaigns, prospects,
-tasks, and other existing records stay in their current `public` tables.
+`shared` mode serves `/api/auth/login`, `/api/auth/signup`, `/api/auth/refresh`, `/api/auth/me`, `/api/health`, and the AI routes under `/api/ai/*`; it does not mount the standalone foundation workspace routes. Login uses the configured Supabase Auth project and then reads the existing `profiles.full_name`, `profiles.role`, and `profiles.active` fields. Signup sends a confirmation link to `FRONTEND_URL`; the existing Supabase profile trigger remains responsible for creating the profile. `ADMIN_EMAIL` and `ADMIN_PASSWORD` do not seed or reset accounts in shared mode; use an existing Supabase Auth account and manage its profile through the existing application. Campaigns, prospects, tasks, and other existing records stay in their current `public` tables.
+
+In shared mode, the backend serves the existing user/profile system and does not automatically create administrator or manager accounts from these credentials.
 
 AI research workflows can use this schema. Generated task requests also require `public.workload_targets` with employee daily
 and weekly targets. If that table or the employee target is missing, the API rejects generation with `TARGET_REQUIRED` rather

@@ -43,9 +43,9 @@ export interface RegisterRequest {
 export type RegisterResponse = {
   name: string;
   email: string;
-  role: "EMPLOYEE";
-  status: "PENDING";
-  department_id: null;
+  role?: "EMPLOYEE";
+  status?: "PENDING" | "ACTIVE" | "DISABLED";
+  department_id?: null;
   message: string;
 };
 

@@ -39,6 +39,14 @@ export const POST = route({ auth: 'none', body }, async ({ body: input, requestI
     throw new ApiError(502, 'AUTH_PROVIDER_ERROR', 'The sign-up service could not complete the request');
   }
 
+  if (getConfig().GROWTHOS_SCHEMA === 'shared') {
+    return created({
+      name: input.name,
+      email: input.email,
+      message: 'Account request received. Check your email for a verification link. Your organization manages account access.',
+    });
+  }
+
   return created({
     name: input.name,
     email: input.email,

@@ -52,7 +52,7 @@ paths:
   /api/auth/signup:
     post:
       tags: [Auth]
-      summary: Create an account. It stays PENDING until an Admin approves it.
+      summary: Create an account and send a verification link.
       security: []
       requestBody:
         required: true
@@ -67,10 +67,11 @@ paths:
                 password: {type: string, minLength: 8}
       description: |
         The answer is the same whether or not the email already exists, so the endpoint cannot be used to find out
-        who has an account. Any role or status sent in the body is ignored. New accounts are always EMPLOYEE and PENDING.
+        who has an account. Any role or status sent in the body is ignored. In foundation mode new accounts are EMPLOYEE and PENDING.
+        In shared mode the existing Supabase profile trigger and workspace control profile creation and activation.
       responses:
         '201':
-          description: Account created, awaiting approval
+          description: Account created; check email and follow any workspace approval requirements.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/SignupResult'}
@@ -1130,7 +1131,7 @@ components:
         name: {type: string}
         email: {type: string, format: email}
         role: {type: string, enum: [EMPLOYEE]}
-        status: {type: string, enum: [PENDING]}
+        status: {type: string, enum: [PENDING, ACTIVE, DISABLED]}
         department_id: {type: string, nullable: true}
         message: {type: string}
     Department:
