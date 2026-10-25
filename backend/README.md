@@ -63,6 +63,14 @@ npm install
 
 In production, the host supplies real environment variables and starts the server with `npm start` (without requiring a `.env` file).
 
+AI jobs require a separate worker process. On Render, create a **Background Worker** from the same repository with root
+directory `backend`, build command `npm ci`, and start command `node ai/worker.js`. Give it the same database, Supabase,
+schema, and AI/provider environment variables as the API service, and set `AI_WORKER_ENABLED=true` on the worker. Keep
+`AI_WORKER_ENABLED=false` on the web service. Configure at least one research provider for prospect searches: Sift requires
+`SIFT_ENABLED=true`, `SIFT_BASE_URL`, `SIFT_API_KEY`, and `SIFT_OWNER_EMAIL`; Apify requires `APIFY_ENABLED=true`,
+`APIFY_TOKEN`, and `APIFY_CONFIG_FILE`. The campaign job list displays provider failures if a worker is running but its
+research provider is unavailable or misconfigured.
+
 ### Existing database mode
 
 `shared` mode serves `/api/auth/login`, `/api/auth/signup`, `/api/auth/refresh`, `/api/auth/me`, `/api/health`, and the AI routes under `/api/ai/*`; it does not mount the standalone foundation workspace routes. Login uses the configured Supabase Auth project and then reads the existing `profiles.full_name`, `profiles.role`, and `profiles.active` fields. Signup sends a confirmation link to `FRONTEND_URL`; the existing Supabase profile trigger remains responsible for creating the profile. `ADMIN_EMAIL` and `ADMIN_PASSWORD` do not seed or reset accounts in shared mode; use an existing Supabase Auth account and manage its profile through the existing application. Campaigns, prospects, tasks, and other existing records stay in their current `public` tables.

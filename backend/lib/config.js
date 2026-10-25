@@ -27,6 +27,7 @@ const schema = z.object({
   EVIDENCE_BUCKET: z.string().trim().min(1).default('evidence'),
   SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
   SUPABASE_JWT_SECRET: z.string().optional(),
+  AI_WORKER_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
   ADMIN_EMAIL: z.string().trim().optional(),
   ADMIN_PASSWORD: z.string().optional(),
   MANAGER_EMAIL: z.string().trim().optional(),
